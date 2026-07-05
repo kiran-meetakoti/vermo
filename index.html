@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Vermo</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@500;600;700;800&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="styles.css" />
+    <style>
+      .content-grid.holdings-view{display:block}.holdings-view .holdings-card{min-height:calc(100vh - 125px)}
+      .holdings-tools{display:none;gap:9px;align-items:center;margin:16px 0 5px;flex-wrap:wrap}.holdings-view .holdings-tools{display:flex}
+      .holdings-tools input,.holdings-tools select{border:1px solid #dde4e2;border-radius:6px;background:#fff;padding:9px 10px;color:#536170;font:600 11px "DM Sans"}
+      .holdings-tools input{min-width:230px}.holdings-count{margin-left:auto;color:#8b96a1;font-size:11px;font-weight:700}
+      .portfolio-link.selected{background:#1b3150;color:#fff}
+      .portfolio-summary{display:none;grid-template-columns:repeat(4,1fr);gap:10px;margin:14px 0}.holdings-view .portfolio-summary{display:grid}
+      .portfolio-summary div{background:#f7faf9;border:1px solid #e7eeeb;border-radius:8px;padding:11px}.portfolio-summary span{display:block;color:#8b96a1;font-size:9px;font-weight:700;letter-spacing:.8px}.portfolio-summary strong{display:block;margin-top:5px;font:700 16px Manrope}
+      .updated-at{color:#8b96a1;font-size:10px;font-weight:600;margin-top:5px}.chart-empty{display:none;color:#8b96a1;font-size:11px;padding:63px 10px;text-align:center}
+      .import-history{margin-top:15px;padding-top:12px;border-top:1px solid #edf0ef}.import-history h4{margin:0 0 7px;font:700 11px Manrope;color:#637080}.import-row{display:flex;justify-content:space-between;gap:8px;padding:5px 0;color:#8b96a1;font-size:10px}.import-row strong{color:#637080;font-size:10px}
+      .refresh-note{color:#8b96a1;font-size:10px;margin-top:5px}.primary-button:disabled{opacity:.65;cursor:wait}
+    </style>
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar">
+        <div class="brand"><span class="brand-mark">V</span><span>vermo</span></div>
+        <nav class="nav-list">
+          <button class="nav-item active" data-page="overview"><span class="icon">⌂</span>Overview</button>
+          <button class="nav-item" data-page="holdings"><span class="icon">◫</span>Holdings</button>
+          <button class="nav-item" data-page="insights"><span class="icon">✦</span>Insights</button>
+          <button class="nav-item" data-page="markets"><span class="icon">◎</span>Markets</button>
+        </nav>
+        <div class="sidebar-bottom">
+          <div class="nav-label">YOUR PORTFOLIOS</div>
+          <button class="portfolio-link" data-market="India"><span class="country-dot india"></span>India <b>₹</b></button>
+          <button class="portfolio-link" data-market="Global"><span class="country-dot global"></span>Global <b>$</b></button>
+          <button class="settings"><span>⚙</span> Settings</button>
+          <div class="profile">
+            <div class="avatar">KK</div>
+            <div><strong>Kiran Kumar</strong><small>Global Investor</small></div>
+            <span class="chev">⋮</span>
+          </div>
+        </div>
+      </aside>
+
+      <main>
+        <header class="topbar">
+          <div>
+            <p class="eyebrow" id="currentDate">Tuesday, June 2</p>
+            <h1 id="greeting">Hello, Kiran</h1>
+            <p class="updated-at" id="lastUpdated">Loading portfolio update time...</p>
+            <p class="refresh-note" id="refreshCoverage">Quotes have not been refreshed yet.</p>
+          </div>
+          <div class="top-actions">
+            <label class="currency-select">Base currency
+              <select id="currencySelect"><option>EUR</option><option>USD</option><option>INR</option></select>
+            </label>
+            <button class="icon-button" aria-label="Notifications">♧<i></i></button>
+            <button class="primary-button" id="refreshPricesBtn">↻ Refresh prices</button>
+            <input id="csvFileInput" type="file" accept=".csv,text/csv" hidden />
+            <button class="primary-button" id="importCsvBtn">↑ Import CSV</button>
+            <button class="primary-button" id="addHoldingBtn"><span>+</span>Add holding</button>
+          </div>
+        </header>
+
+        <section class="hero-grid overview-only">
+          <article class="card net-worth-card">
+            <div class="card-head">
+              <div><p class="eyebrow">TOTAL NET WORTH</p><h2 id="netWorth">€142,380</h2></div>
+              <span class="pill success">↑ 8.4% <small>all time</small></span>
+            </div>
+            <div class="hero-foot">
+              <div><span class="mini-label">PRICE STATUS</span><strong id="dayChange">Imported values</strong></div>
+              <div><span class="mini-label">TOTAL RETURNS</span><strong class="positive" id="returns">+€18,940</strong></div>
+              <div><span class="mini-label">INVESTED</span><strong id="invested">€123,440</strong></div>
+            </div>
+          </article>
+          <article class="card health-card">
+            <div class="health-ring">
+              <svg viewBox="0 0 92 92"><circle cx="46" cy="46" r="37"></circle><circle class="ring-progress" id="healthRing" cx="46" cy="46" r="37"></circle></svg>
+              <div><strong id="healthScore">78</strong><small>/100</small></div>
+            </div>
+            <div class="health-copy"><p class="eyebrow">PORTFOLIO HEALTH</p><h3 id="healthLabel">Looking healthy</h3><p id="healthSignal">Your portfolio is well diversified. A few small adjustments could improve it further.</p></div>
+          </article>
+        </section>
+
+        <section class="card performance-card overview-only">
+          <div class="section-head">
+            <div><p class="eyebrow">PERFORMANCE</p><h3>Portfolio growth</h3></div>
+            <div class="range-tabs"><button>1M</button><button>3M</button><button>6M</button><button class="active">1Y</button><button>ALL</button></div>
+          </div>
+          <div class="chart-wrap">
+            <div class="chart-scale"><span>€150k</span><span>€130k</span><span>€110k</span><span>€90k</span></div>
+            <svg class="line-chart" viewBox="0 0 1000 230" preserveAspectRatio="none">
+              <defs>
+                <linearGradient id="area" x1="0" x2="0" y1="0" y2="1"><stop offset="0%" stop-color="#1e8a78" stop-opacity=".22"/><stop offset="100%" stop-color="#1e8a78" stop-opacity="0"/></linearGradient>
+              </defs>
+              <path class="grid" d="M0 20H1000 M0 85H1000 M0 150H1000 M0 215H1000"/>
+              <path class="area" id="chartArea" d=""/>
+              <path class="chart-line" id="chartLine" d=""/>
+              <circle id="chartPoint" cx="0" cy="0" r="5"/>
+            </svg>
+            <div class="chart-empty" id="chartEmpty">Portfolio history starts today. Daily snapshots will build this chart over time.</div>
+            <div class="chart-months" id="chartLabels"></div>
+          </div>
+        </section>
+
+        <section class="card performance-card overview-only">
+          <div class="section-head"><div><p class="eyebrow">BARBELL STRATEGY</p><h3>Core, upside & review</h3></div><button class="text-button">Heuristic view</button></div>
+          <div class="asset-bars">
+            <div><p><span>Core side</span><strong id="barbellCoreAllocation">0%</strong></p><i><b id="barbellCoreBar" style="width:0%"></b></i></div>
+            <div><p><span>Upside side</span><strong id="barbellUpsideAllocation">0%</strong></p><i><b id="barbellUpsideBar" style="width:0%"></b></i></div>
+            <div><p><span>Review / middle</span><strong id="barbellReviewAllocation">0%</strong></p><i><b id="barbellReviewBar" style="width:0%"></b></i></div>
+          </div>
+        </section>
+
+        <section class="breakdown-grid overview-only">
+          <article class="card">
+            <div class="section-head"><div><p class="eyebrow">ALLOCATION</p><h3>By geography</h3></div><button class="text-button">View details</button></div>
+            <div class="allocation-body">
+              <div class="donut geography" id="geographyDonut"><div><strong id="marketCount">2</strong><span>markets</span></div></div>
+              <div class="legend">
+                <div><span class="legend-dot green"></span><p>India<small>Indian assets</small></p><strong id="indiaAllocation">48.2%</strong></div>
+                <div><span class="legend-dot navy"></span><p>Global<small>US & international</small></p><strong id="globalAllocation">19.2%</strong></div>
+              </div>
+            </div>
+          </article>
+          <article class="card">
+            <div class="section-head"><div><p class="eyebrow">ALLOCATION</p><h3>Stocks, funds & ETFs</h3></div><button class="text-button">View details</button></div>
+            <div class="asset-bars">
+              <div><p><span>Stocks</span><strong id="stocksAllocation">68%</strong></p><i><b id="stocksBar" style="width:68%"></b></i></div>
+              <div><p><span>Mutual funds</span><strong id="mutualFundsAllocation">18%</strong></p><i><b id="mutualFundsBar" style="width:18%"></b></i></div>
+              <div><p><span>ETFs</span><strong id="etfsAllocation">9%</strong></p><i><b id="etfsBar" style="width:9%"></b></i></div>
+              <div><p><span>Other</span><strong id="otherAllocation">5%</strong></p><i><b id="otherBar" style="width:5%"></b></i></div>
+            </div>
+          </article>
+        </section>
+
+        <section class="card performance-card overview-only">
+          <div class="section-head"><div><p class="eyebrow">EQUITY STYLE</p><h3>Stocks by market cap</h3></div><button class="text-button">Stock holdings only</button></div>
+          <div class="asset-bars">
+            <div><p><span>Large cap</span><strong id="largeCapAllocation">0%</strong></p><i><b id="largeCapBar" style="width:0%"></b></i></div>
+            <div><p><span>Mid cap</span><strong id="midCapAllocation">0%</strong></p><i><b id="midCapBar" style="width:0%"></b></i></div>
+            <div><p><span>Small cap</span><strong id="smallCapAllocation">0%</strong></p><i><b id="smallCapBar" style="width:0%"></b></i></div>
+            <div><p><span>Unclassified</span><strong id="unclassifiedCapAllocation">0%</strong></p><i><b id="unclassifiedCapBar" style="width:0%"></b></i></div>
+          </div>
+        </section>
+
+        <section class="content-grid" id="portfolioContent">
+          <article class="card holdings-card">
+            <div class="section-head"><div><p class="eyebrow">YOUR ASSETS</p><h3 id="holdingsTitle">Top holdings</h3></div><button class="text-button" id="viewAllBtn">View all holdings</button></div>
+            <div class="portfolio-summary">
+              <div><span id="portfolioScope">ALL PORTFOLIOS</span><strong id="filteredNetWorth">€0</strong></div>
+              <div><span>INVESTED</span><strong id="filteredInvested">€0</strong></div>
+              <div><span>PROFIT / LOSS</span><strong id="filteredPnl">€0</strong></div>
+              <div><span>RETURN</span><strong id="filteredReturn">0%</strong></div>
+            </div>
+            <div class="holdings-tools">
+              <input id="holdingSearch" placeholder="Search company or ticker" />
+              <select id="marketFilter"><option value="All">All markets</option><option>India</option><option>Global</option></select>
+              <select id="categoryFilter"><option value="All">All assets</option><option>Stock</option><option>Mutual fund</option><option>ETF</option><option>Other</option></select>
+              <select id="capFilter"><option value="All">All cap buckets</option><option>Large cap</option><option>Mid cap</option><option>Small cap</option><option>Unclassified</option></select>
+              <select id="barbellFilter"><option value="All">All barbell roles</option><option>Core</option><option>Upside</option><option>Review</option></select>
+              <select id="holdingSort">
+                <option value="value_desc">Highest value</option><option value="value_asc">Lowest value</option>
+                <option value="pnl_desc">Highest profit</option><option value="pnl_asc">Largest loss</option>
+                <option value="return_desc">Highest return %</option><option value="return_asc">Lowest return %</option>
+                <option value="invested_desc">Highest invested</option><option value="invested_asc">Lowest invested</option>
+                <option value="weight_desc">Highest weight</option><option value="quantity_desc">Highest quantity</option>
+                <option value="price_desc">Highest price</option><option value="market_asc">Market</option>
+                <option value="name_asc">Company name A-Z</option>
+              </select>
+              <span class="holdings-count" id="holdingsCount"></span>
+            </div>
+            <div class="table-scroll">
+              <table><thead><tr><th>Asset</th><th>Market</th><th>Type</th><th>Cap</th><th>Barbell</th><th>Qty</th><th>Avg cost</th><th>Price</th><th>Invested</th><th>Value</th><th>P/L</th><th>Return</th><th>Weight</th></tr></thead><tbody id="holdingsBody"></tbody></table>
+            </div>
+          </article>
+          <article class="card insights-card overview-only">
+            <div class="section-head"><div><p class="eyebrow">SMART INSIGHTS</p><h3>Suggested for you</h3></div><span class="ai-pill">✦ Vermo AI</span></div>
+            <div id="insightsList"></div>
+            <div class="import-history"><h4>Recent portfolio updates</h4><div id="importHistory"></div></div>
+          </article>
+        </section>
+      </main>
+    </div>
+
+    <div class="modal-backdrop" id="modalBackdrop">
+      <form class="modal" id="holdingForm">
+        <div class="modal-head"><div><p class="eyebrow">PORTFOLIO ASSET</p><h3>Add a holding</h3></div><button type="button" id="closeModal">×</button></div>
+        <label>Asset name<input name="name" placeholder="e.g. Alphabet Inc." required /></label>
+        <div class="form-grid"><label>Ticker<input name="ticker" placeholder="GOOGL" required /></label><label>Market<select name="market"><option>India</option><option>Global</option></select></label></div>
+        <div class="form-grid"><label>Current value<input name="value" type="number" min="1" placeholder="10000" required /></label><label>Return %<input name="return" type="number" step=".1" placeholder="8.5" required /></label></div>
+        <button class="primary-button modal-submit">Add to portfolio</button>
+      </form>
+    </div>
+    <div class="toast" id="toast">Holding added to your portfolio</div>
+    <script src="app.js"></script>
+  </body>
+</html>

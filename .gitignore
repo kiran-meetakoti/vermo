@@ -1,0 +1,13 @@
+.venv/
+__pycache__/
+*.pyc
+.DS_Store
+# Ignore the entire data dir — it holds runtime SQLite DBs, DB backups,
+# personal CSVs, and uploaded bank statements. The app recreates data/ on
+# startup (DATA_DIR.mkdir), so nothing here needs to be tracked.
+data/
+.env
+.env.local
+
+# Personal Claude Code overrides (permission allowlists etc.) — not shared.
+.claude/settings.local.json
