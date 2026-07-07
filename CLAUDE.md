@@ -10,8 +10,10 @@ isolation, tests for data-corrupting logic, docs kept in sync.
 - `docs/DATA_MODEL.md` — every table in `portfolio.db` and `auth.db`,
   schema conventions, migration rules.
 - `docs/DEVELOPMENT.md` — setup, conventions, how-to recipes.
-- `MULTI_USER_ROADMAP.md` — staged plan to hosted product; check "Where we
-  are" before starting roadmap work.
+- `docs/PRODUCT_ROADMAP.md` — the master plan (phases to world-class +
+  iOS/Android via Expo); check phase status before starting roadmap work.
+- `MULTI_USER_ROADMAP.md` — the completed infra log (SQLite → Supabase →
+  hosted); historical context, absorbed into the product roadmap.
 
 ## Commands
 ```bash

@@ -1,4 +1,10 @@
-# Atlas Portfolio — Multi-User Roadmap
+# Atlas/Vermo — Multi-User Infrastructure Roadmap
+
+> **Superseded as the master plan** (2026-07-07): see
+> `docs/PRODUCT_ROADMAP.md` for the full path to a world-class product with
+> iOS/Android apps. Stages 1–3 here are essentially complete; the remaining
+> Stage 4/5 items are absorbed into the product roadmap's phases. Kept as
+> the infrastructure log and for historical context.
 
 Plan to take Atlas Portfolio from a single-user local app to a product other
 people can sign up for and use to track their own portfolios.
