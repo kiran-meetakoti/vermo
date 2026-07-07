@@ -13,6 +13,7 @@ import plotly.graph_objects as go
 import streamlit as st
 
 import budget_db
+import db
 from finance_math import (
     add_months,
     debt_projection,
@@ -117,11 +118,12 @@ def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def connect() -> sqlite3.Connection:
-    DATA_DIR.mkdir(exist_ok=True)
-    connection = sqlite3.connect(DATABASE_FILE)
-    connection.row_factory = sqlite3.Row
-    return connection
+def connect():
+    """Configured backend: Postgres when VERMO_BACKEND=postgres, else the
+    local SQLite file (see db.py)."""
+    if db.is_postgres():
+        return db.connect()
+    return db.connect(DATABASE_FILE)
 
 
 def load_rows(query: str, params: tuple = ()) -> list[dict]:
@@ -174,6 +176,8 @@ def _rebuild_budget_settings_for_multiuser(connection: sqlite3.Connection) -> No
 
 @st.cache_resource
 def init_budget_tables() -> None:
+    if db.is_postgres():
+        return  # schema managed by migrations/postgres/*.sql
     with connect() as connection:
         _rebuild_budget_settings_for_multiuser(connection)
         connection.execute(
@@ -234,6 +238,8 @@ MANUAL_ASSET_CATEGORIES = [
 
 @st.cache_resource
 def init_manual_assets_table() -> None:
+    if db.is_postgres():
+        return  # schema managed by migrations/postgres/*.sql
     with connect() as connection:
         connection.execute(
             """
@@ -257,6 +263,8 @@ def init_manual_assets_table() -> None:
 
 @st.cache_resource
 def init_broker_tables() -> None:
+    if db.is_postgres():
+        return  # schema managed by migrations/postgres/*.sql
     with connect() as connection:
         connection.execute(
             """
@@ -562,6 +570,10 @@ LEGACY_DATA_TABLES = (
 
 
 def has_legacy_data() -> bool:
+    if db.is_postgres():
+        # 'local-user' predates auth and isn't a uuid; legacy claiming is a
+        # SQLite-era concept — migrated Postgres data is already owned.
+        return False
     rows = load_rows("SELECT 1 FROM holdings WHERE user_id = ? LIMIT 1", (LEGACY_USER_ID,))
     return bool(rows)
 

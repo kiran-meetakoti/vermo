@@ -19,6 +19,7 @@ from fastapi import Depends, FastAPI, File, Header, HTTPException, UploadFile
 from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel, Field, ValidationError
 
+import db
 from auth.local_auth import resolve_session
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -149,11 +150,12 @@ def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def connect() -> sqlite3.Connection:
-    DATA_DIR.mkdir(exist_ok=True)
-    connection = sqlite3.connect(DATABASE_FILE)
-    connection.row_factory = sqlite3.Row
-    return connection
+def connect():
+    """Configured backend: Postgres when VERMO_BACKEND=postgres, else SQLite
+    at DATABASE_FILE (module global, so tests can point it at a tmp file)."""
+    if db.is_postgres():
+        return db.connect()
+    return db.connect(DATABASE_FILE)
 
 
 def inferred_invested(value_eur: float, return_percent: float) -> float:
@@ -316,6 +318,16 @@ def _add_user_id_column(connection: sqlite3.Connection, table: str) -> None:
 
 
 def init_database() -> None:
+    if db.is_postgres():
+        # Postgres schema is managed by migrations/postgres/*.sql, not app code
+        # (see docs/DATA_MODEL.md). Just make sure the FX defaults exist.
+        with connect() as connection:
+            for currency, rate in DEFAULT_FX_RATES.items():
+                connection.execute(
+                    "INSERT INTO settings VALUES (?, ?, ?) ON CONFLICT (key) DO NOTHING",
+                    (f"fx_{currency}", str(rate), utc_now()),
+                )
+        return
     with connect() as connection:
         # Multi-user migration: rebuild tables whose old constraints (UNIQUE/PRIMARY KEY)
         # didn't account for user_id, then additively add user_id to the rest.

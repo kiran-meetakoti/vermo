@@ -15,6 +15,8 @@ from datetime import date, datetime, timezone
 from pathlib import Path
 from uuid import uuid4
 
+import db
+
 BASE_DIR = Path(__file__).resolve().parent
 DATA_DIR = BASE_DIR / "data"
 DATABASE_FILE = DATA_DIR / "portfolio.db"
@@ -24,11 +26,11 @@ def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def connect(db_file: Path | str = DATABASE_FILE) -> sqlite3.Connection:
-    Path(db_file).parent.mkdir(parents=True, exist_ok=True)
-    connection = sqlite3.connect(db_file)
-    connection.row_factory = sqlite3.Row
-    return connection
+def connect(db_file: Path | str | None = None):
+    """db_file=None → the configured backend (Postgres when
+    VERMO_BACKEND=postgres, else the app's SQLite file). An explicit db_file
+    always means SQLite on that file (tests use tmp paths)."""
+    return db.connect(db_file)
 
 
 def ensure_schema(db_file: Path | str = DATABASE_FILE) -> None:
@@ -58,7 +60,7 @@ def expense_exists(
     name: str,
     amount_eur: float,
     expense_date_iso: str,
-    db_file: Path | str = DATABASE_FILE,
+    db_file: Path | str | None = None,
 ) -> bool:
     """True if this user already has an expense with the same name, amount, and
     date. Matches on name+amount+date only — deliberately ignoring category,
@@ -69,7 +71,7 @@ def expense_exists(
         row = connection.execute(
             "SELECT 1 FROM budget_expenses "
             "WHERE user_id = ? AND name = ? AND expense_date = ? "
-            "AND ROUND(amount_eur, 2) = ROUND(?, 2) LIMIT 1",
+            "AND ROUND(amount_eur, 2) = ROUND(CAST(? AS NUMERIC), 2) LIMIT 1",
             (user_id, name, expense_date_iso, amount_eur),
         ).fetchone()
     return row is not None
@@ -77,7 +79,7 @@ def expense_exists(
 
 def ensure_recurring_expenses(
     user_id: str,
-    db_file: Path | str = DATABASE_FILE,
+    db_file: Path | str | None = None,
     today: date | None = None,
 ) -> int:
     """Materialize a concrete row for each month a recurring expense (e.g. Rent,
@@ -94,7 +96,7 @@ def ensure_recurring_expenses(
     inserted = 0
     with connect(db_file) as connection:
         rows = connection.execute(
-            "SELECT * FROM budget_expenses WHERE user_id = ? AND is_recurring = 1", (user_id,)
+            "SELECT * FROM budget_expenses WHERE user_id = ? AND is_recurring = ?", (user_id, True)
         ).fetchall()
         if not rows:
             return 0
@@ -117,8 +119,8 @@ def ensure_recurring_expenses(
                     connection.execute(
                         "INSERT INTO budget_expenses "
                         "(id, user_id, name, category, amount_eur, expense_date, created_at, updated_at, is_recurring) "
-                        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)",
-                        (str(uuid4()), user_id, name, category, template_amount, f"{month_cursor}-01", now, now),
+                        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                        (str(uuid4()), user_id, name, category, template_amount, f"{month_cursor}-01", now, now, True),
                     )
                     inserted += 1
                 month += 1
@@ -136,7 +138,7 @@ def add_expense(
     amount_eur: float,
     expense_date: date | None = None,
     is_recurring: bool = False,
-    db_file: Path | str = DATABASE_FILE,
+    db_file: Path | str | None = None,
 ) -> None:
     now = _utc_now()
     with connect(db_file) as connection:
@@ -146,6 +148,6 @@ def add_expense(
             "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 str(uuid4()), user_id, name, category, amount_eur,
-                (expense_date or date.today()).isoformat(), now, now, int(is_recurring),
+                (expense_date or date.today()).isoformat(), now, now, bool(is_recurring),
             ),
         )

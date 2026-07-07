@@ -153,13 +153,22 @@ managed auth provider instead of the homegrown password table.
    re-running inserts 0 (idempotent). Old test-account rows deliberately
    not migrated. SQLite stays untouched as the working store until step 4
    lands.
-4. Swap `sqlite3.connect()` for `psycopg2`/`supabase-py` in both
-   `main.py` and `streamlit_app.py`. The query shapes mostly carry over;
-   placeholder syntax changes (`?` → `%s`), and `INSERT ... ON CONFLICT`
-   stays the same in Postgres.
+4. [x] Swap the data layer — done 2026-07-07 via `db.py`, a backend-agnostic
+   connection module: Postgres only when `VERMO_BACKEND=postgres` (explicit
+   flag so tests/dev can never accidentally hit production), SQLite
+   otherwise. Call sites kept their sqlite3 style — `db.py` translates
+   qmark/named placeholders to psycopg format and registers type loaders so
+   Postgres returns SQLite-shaped values (float money, string dates/uuids).
+   SQLite-era schema-init/migration/legacy-claim code is skipped on
+   Postgres (schema comes from `migrations/postgres/`). Verified against
+   live Supabase: reads match to the cent, holdings upsert/update/delete
+   and budget add/dedup/recurring-backfill roundtrips all pass, row counts
+   unchanged after cleanup. **Still to do: retire `auth/local_auth.py` for
+   Supabase Auth** — until then the app keeps running on SQLite, because
+   local-auth user ids don't exist in Postgres `auth.users`.
 5. Config via environment variables: `DATABASE_URL`, `SUPABASE_URL`,
-   `SUPABASE_ANON_KEY` — `.env` locally (already gitignored), real secrets
-   set on the host in Stage 3.
+   `SUPABASE_ANON_KEY`, `VERMO_BACKEND` — `.env` locally (already
+   gitignored, see `.env.example`), real secrets set on the host in Stage 3.
 6. **Test**: same two-account isolation test as Stage 1, now against
    Postgres.
 
