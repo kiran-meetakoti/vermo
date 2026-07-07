@@ -102,6 +102,21 @@ Manually tracked non-brokerage assets. Columns: `name`, `category` (one of
 Crypto, Vehicles & collectibles, Other), `value_eur`, `cost_eur` (nullable),
 `currency`, `original_value`, `notes`, timestamps. Totals roll into net worth.
 
+### income_events (income_db.py)
+Dividends, interest, rent, and other income (Postgres migration
+`003_income_events.sql`; SQLite twin in `income_db.ensure_schema`).
+
+| Column | Notes |
+|---|---|
+| `id` | UUID PK |
+| `user_id` | owner (RLS owner-only policy on Postgres) |
+| `source_type` | CHECK: `Dividend` / `Interest` / `Rent` / `Other` |
+| `holding_id` | nullable link to `holdings` for per-holding yield; `ON DELETE SET NULL` |
+| `name`, `notes` | description + optional free text |
+| `amount_eur` | received amount |
+| `income_date` | `YYYY-MM-DD` |
+| `created_at`, `updated_at` | ISO UTC |
+
 ### broker_imports / broker_transactions (streamlit_app.py)
 Broker CSV audit (`broker`, `filename`, `imported` count) and the raw
 transaction rows (`import_id` FK-by-convention, `trade_date`,

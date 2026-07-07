@@ -14,6 +14,7 @@ import streamlit as st
 
 import budget_db
 import db
+import income_db
 import market_data
 import portfolio_core
 from market_data import classify_holding, classify_barbell
@@ -844,7 +845,7 @@ st.sidebar.caption("Display")
 theme_mode = st.sidebar.selectbox("Theme", ["Linear Light", "Midnight Dark"], index=0)
 currency = st.sidebar.selectbox("Base currency", ["EUR", "USD", "INR"])
 st.sidebar.caption("Navigation")
-page = st.sidebar.radio("View", ["Overview", "Holdings", "Other assets", "Broker imports", "Debt tracker", "Budget tracker", "Import & manage"], label_visibility="collapsed")
+page = st.sidebar.radio("View", ["Overview", "Holdings", "Income", "Other assets", "Broker imports", "Debt tracker", "Budget tracker", "Import & manage"], label_visibility="collapsed")
 
 st.sidebar.markdown("---")
 st.sidebar.caption("Live prices")
@@ -1115,6 +1116,7 @@ init_budget_tables()
 ensure_recurring_expenses()
 init_broker_tables()
 init_manual_assets_table()
+income_db.ensure_schema()  # no-op on Postgres (003 migration owns it)
 
 if LOCAL_USER_ID != LEGACY_USER_ID and has_legacy_data() and not holdings():
     st.info(
@@ -1599,6 +1601,114 @@ elif page == "Holdings":
                     st.rerun()
                 else:
                     st.info("No changes to save.")
+
+elif page == "Income":
+    income_summary = income_db.income_summary(LOCAL_USER_ID)
+    income_events = income_db.income_events(LOCAL_USER_ID)
+    by_type_line = " · ".join(
+        f"{source_type} {money(total, currency, rates)}" for source_type, total in income_summary["by_type"].items()
+    ) or "Record dividends, interest, or rent below"
+
+    st.markdown(
+        f"<div class='fd-metrics'>"
+        f"<div class='fd-metric primary'><span class='fd-metric-label'>Last 12 months</span>"
+        f"<span class='fd-metric-value'>{money(income_summary['trailing_12m'], currency, rates)}</span>"
+        f"<span class='fd-metric-sub'>{by_type_line}</span></div>"
+        f"<div class='fd-metric teal'><span class='fd-metric-label'>This year</span>"
+        f"<span class='fd-metric-value'>{money(income_summary['this_year'], currency, rates)}</span>"
+        f"<span class='fd-metric-sub'>since January 1</span></div>"
+        f"<div class='fd-metric green'><span class='fd-metric-label'>Monthly average</span>"
+        f"<span class='fd-metric-value'>{money(income_summary['monthly_avg'], currency, rates)}</span>"
+        f"<span class='fd-metric-sub'>trailing 12-month basis</span></div>"
+        f"</div>",
+        unsafe_allow_html=True,
+    )
+
+    chart_col, form_col = st.columns([1.7, 1])
+
+    with chart_col:
+        st.markdown("<div class='fd-section-title'>Income by month</div>", unsafe_allow_html=True)
+        monthly_rows = income_db.income_by_month(LOCAL_USER_ID, months=12)
+        if monthly_rows:
+            fig_income = go.Figure()
+            type_colors = {"Dividend": "#16a34a", "Interest": "#0ea5e9", "Rent": "#f59e0b", "Other": "#8b5cf6"}
+            for source_type in income_db.INCOME_TYPES:
+                points = [r for r in monthly_rows if r["source_type"] == source_type]
+                if points:
+                    fig_income.add_trace(go.Bar(
+                        x=[r["month"] for r in points],
+                        y=[r["amount_eur"] * rates[currency] for r in points],
+                        name=source_type, marker_color=type_colors[source_type],
+                    ))
+            fig_income.update_layout(
+                barmode="stack", height=260, margin=dict(l=0, r=0, t=8, b=0),
+                paper_bgcolor=plot_bg, plot_bgcolor=plot_bg,
+                font=dict(color=plot_muted, size=11),
+                xaxis=dict(showgrid=False, tickfont=dict(color=plot_muted, size=10)),
+                yaxis=dict(showgrid=True, gridcolor=plot_line, tickfont=dict(color=plot_muted, size=10), zeroline=False),
+                legend=dict(orientation="h", y=1.14, x=0, font=dict(color=plot_muted, size=10), bgcolor="rgba(0,0,0,0)"),
+            )
+            st.plotly_chart(fig_income, use_container_width=True, config={"displayModeBar": False})
+        else:
+            st.markdown(
+                "<div class='fd-panel' style='height:230px;display:flex;align-items:center;justify-content:center'>"
+                "<span style='color:var(--atlas-muted);font-size:13px'>No income recorded yet — add your first dividend, interest, or rent on the right</span></div>",
+                unsafe_allow_html=True,
+            )
+
+        yields = income_db.dividend_yields(LOCAL_USER_ID)
+        if yields:
+            st.markdown("<div class='fd-section-title'>Income by holding (trailing 12m)</div>", unsafe_allow_html=True)
+            yield_body = "".join(
+                f"<tr><td><strong>{y['name']}</strong><br><small>{y['ticker']}</small></td>"
+                f"<td>{money(y['income_12m'], currency, rates)}</td>"
+                f"<td>{money(y['value_eur'], currency, rates)}</td>"
+                f"<td><strong>{y['yield_percent']:.2f}%</strong></td></tr>"
+                for y in yields
+            )
+            st.markdown(
+                "<table><thead><tr><th>Holding</th><th>Income 12m</th><th>Value</th><th>Yield</th></tr></thead>"
+                f"<tbody>{yield_body}</tbody></table>",
+                unsafe_allow_html=True,
+            )
+
+    with form_col:
+        st.markdown("<div class='fd-section-title'>Record income</div>", unsafe_allow_html=True)
+        holding_options = {"— not linked —": None}
+        holding_options.update({f"{h['name']} ({h['ticker']})": h["id"] for h in holdings()})
+        with st.form("add_income", clear_on_submit=True):
+            income_type = st.selectbox("Type", list(income_db.INCOME_TYPES))
+            income_name = st.text_input("Description", placeholder="e.g. VWCE Q2 distribution")
+            income_amount = st.number_input("Amount (EUR)", min_value=0.0, step=10.0)
+            income_date_input = st.date_input("Received on", value=date.today())
+            linked_label = st.selectbox("Linked holding (for yield)", list(holding_options))
+            income_notes = st.text_input("Notes", placeholder="optional")
+            if st.form_submit_button("Add income", type="primary"):
+                if not income_name.strip() or income_amount <= 0:
+                    st.error("A description and a positive amount are required.")
+                else:
+                    income_db.add_income(
+                        LOCAL_USER_ID, income_type, income_name.strip(), income_amount,
+                        income_date_input, holding_id=holding_options[linked_label],
+                        notes=income_notes.strip() or None,
+                    )
+                    st.success("Income recorded.")
+                    st.rerun()
+
+        if income_events:
+            st.markdown("<div class='fd-section-title'>Recent income</div>", unsafe_allow_html=True)
+            for event in income_events[:20]:
+                row_l, row_r = st.columns([5, 1])
+                row_l.markdown(
+                    f"<div style='font-size:13px;padding:2px 0'><strong style='color:var(--atlas-ink)'>{event['name']}</strong>"
+                    f"<span class='fd-tag' style='margin-left:8px'>{event['source_type']}</span><br>"
+                    f"<span style='color:var(--atlas-muted)'>{event['income_date'][:10]} · {money(event['amount_eur'], currency, rates)}"
+                    f"{' · ' + event['notes'] if event.get('notes') else ''}</span></div>",
+                    unsafe_allow_html=True,
+                )
+                if row_r.button("✕", key=f"del_income_{event['id']}"):
+                    income_db.delete_income(LOCAL_USER_ID, event["id"])
+                    st.rerun()
 
 elif page == "Other assets":
     # ── category totals ───────────────────────────────────────────────────

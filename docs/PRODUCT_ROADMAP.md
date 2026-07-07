@@ -131,7 +131,10 @@ mobile app automatically:
    Overview P/L tile when ≥90 days of history exist. Refinement for later:
    feed real `broker_transactions` dates once broker imports are
    first-class (P4), replacing the cost-basis approximation.
-4. **Dividends & income view** — what does my wealth pay me?
+4. [x] **Dividends & income view** — done 2026-07-07: new Income page
+   (trailing-12m / this-year / monthly-average tiles, stacked monthly
+   chart, per-holding trailing yield); `income_events` table (003
+   migration, RLS) + tested `income_db.py` module.
 5. **Named goals** — wrap the existing `finance_math` projections in goals
    with on-track/off-track status ("House deposit €60k by 2028").
 
