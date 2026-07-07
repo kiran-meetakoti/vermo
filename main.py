@@ -4,10 +4,7 @@ import csv
 import io
 import json
 import sqlite3
-import urllib.parse
-import urllib.request
 from collections import defaultdict
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date, datetime, timezone
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
@@ -20,7 +17,10 @@ from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel, Field, ValidationError
 
 import db
+import portfolio_core
 from auth.local_auth import resolve_session
+from market_data import classify_holding, classify_barbell
+from portfolio_core import DEFAULT_FX_RATES, inferred_invested, utc_now
 
 BASE_DIR = Path(__file__).resolve().parent
 DATA_DIR = BASE_DIR / "data"
@@ -32,76 +32,12 @@ CSV_COLUMNS = ("name", "ticker", "market", "value_eur", "return_percent", "asset
 TRANSACTION_COLUMNS = ("date", "category", "type", "asset_class", "name", "symbol", "shares", "price", "amount", "fee", "currency")
 INDIA_SNAPSHOT_COLUMNS = ("Stock Name", "Company Name", "CMP", "Portfolio Holdings", "Invested Value", "Qty")
 INR_PER_EUR = Decimal("97.3")
-DEFAULT_FX_RATES = {"EUR": 1.0, "INR": 97.3, "USD": 1.14, "GBP": 0.86}
 
 # Every holding/snapshot/import row belongs to a user. Route handlers no longer
 # trust a client-supplied user_id (see require_user_id below) — this constant now
 # only serves as the default for internal helper functions when called directly
 # (e.g. from a script or test) without going through a route.
 LOCAL_USER_ID = "702204ea-0bba-4e4d-8349-3a6d31adab42"
-INDIA_YAHOO_SYMBOLS = {
-    "BAJFINEQ": "BAJFINANCE.NS", "ICIBANEQ": "ICICIBANK.NS", "HDFBANEQ": "HDFCBANK.NS",
-    "KOTMAHEQ": "KOTAKBANK.NS", "AMIORGEQ": "ACUTAAS.NS", "TCSLTDEQ": "TCS.NS",
-    "DIXONEQ": "DIXON.NS", "RELINDEQ": "RELIANCE.NS", "TRELTDEQ": "TRENT.NS",
-    "NIITECEQ": "COFORGE.NS", "HDFCMFGETFEQ": "HDFCGOLD.NS", "EICMOTEQ": "EICHERMOT.NS",
-    "JIOFINEQ": "JIOFIN.NS", "FINEORGEQ": "FINEORG.NS", "CLEANEQ": "CLEAN.NS",
-    "BHELTDEQ": "BHEL.NS", "ALKAMIEQ": "ALKYLAMINE.NS", "ASIPAIEQ": "ASIANPAINT.NS",
-    "ITCLTDEQ": "ITC.NS", "HLLLTDEQ": "HINDUNILVR.NS", "EXIINDEQ": "EXIDEIND.NS",
-    "HDFCLIFEEQ": "HDFCLIFE.NS", "LIQBENEQ": "LIQUIDBEES.NS",
-    # Extended mappings
-    "RAINBOWEQ": "RAINBOW.NS", "SAGILITYEQ": "SAGILITY.NS", "GODIGITEQ": "GODIGIT.NS",
-    "HDBFSEQ": "HDBFS.NS", "ROSSARIEQ": "ROSSARI.NS", "HOMEFIRSTEQ": "HOMEFIRST.NS",
-    "RATEGAINIQ": "RATEGAIN.NS", "KWILEQ": "KWIL.NS", "LOGMICEQ": "IZMO.NS",
-    "LUMINDEQ": "LUMAXIND.NS", "MASFINEQ": "MASFIN.NS", "SUBLTDEQ": "SUBROS.NS",
-    "DCALEQ": "DCAL.NS", "TARSONSIQ": "TARSONS.NS", "RSYINTEQ": "RSYSTEMS.NS",
-    "KNRCONEQ": "KNRCON.NS", "ITCHOTELSEQ": "ITCHOTELS.NS", "RELFOOEQ": "RELAXO.NS",
-}
-GLOBAL_YAHOO_SYMBOLS = {
-    "US67066G1040": "NVDA", "US5949181045": "MSFT", "US02079K3059": "GOOGL",
-    "US64110L1061": "NFLX", "US30303M1027": "META", "US0231351067": "AMZN",
-    "US00217D1000": "ASTS", "US69608A1088": "PLTR", "NL0010273215": "ASML",
-    "US8740391003": "TSM", "US81762P1021": "NOW", "US11135F1012": "AVGO",
-    "US7811541090": "RBRK", "US26740W1099": "QBTS",
-    # Irish-domiciled ETFs listed on Euronext Amsterdam / London
-    "IE00B4ND3602": "IGLN.L",    # iShares Physical Gold ETC (USD)
-    "IE00BK5BQT80": "VWCE.AS",   # Vanguard FTSE All-World acc (EUR)
-    "IE00BFMXXD54": "VUAA.DE",   # Vanguard S&P 500 acc (EUR)
-    "IE00BGV5VN51": "WTAI.L",    # WisdomTree AI & Big Data (USD)
-}
-MUTUAL_FUND_TICKERS = {
-    "MF-QUANT-MIDCAP", "MF-PGIM-INDIA-MIDCAP", "MF-BANDHAN-NIFTY50", "MF-HELIOS-FLEXICAP",
-    "MF-QUANT-SMALLCAP-1", "MF-MOTILAL-MIDCAP", "MF-QUANT-SMALLCAP-2", "MF-PPFAS-FLEXICAP",
-    "MF-AXIS-SMALLCAP",
-}
-ETF_TICKERS = {"HDFCMFGETFEQ", "LIQBENEQ", "IE00BGV5VN51", "IE00BFMXXD54", "IE00B4ND3602", "IE00BK5BQT80"}
-CAP_BUCKETS = {
-    "Large cap": {
-        "BAJFINEQ", "ICIBANEQ", "HDFBANEQ", "KOTMAHEQ", "TCSLTDEQ", "RELINDEQ", "TRELTDEQ",
-        "EICMOTEQ", "JIOFINEQ", "ASIPAIEQ", "ITCLTDEQ", "HLLLTDEQ", "HDFCLIFEEQ",
-        "US67066G1040", "US5949181045", "US02079K3059", "US64110L1061", "US30303M1027",
-        "US0231351067", "NL0010273215", "US8740391003", "US81762P1021", "US11135F1012",
-    },
-    "Mid cap": {
-        "DIXONEQ", "NIITECEQ", "FINEORGEQ", "CLEANEQ", "RAINBOWEQ", "SAGILITYEQ", "BHELTDEQ",
-        "ALKAMIEQ", "HOMEFIRSTEQ", "GODIGITEQ", "HDBFSEQ", "ROSSARIEQ", "US69608A1088",
-    },
-    "Small cap": {
-        "AMIORGEQ", "RATEGAINIQ", "LUMINDEQ", "RSYINTEQ", "UNIECOMEQ", "MASFINEQ", "LOGMICEQ",
-        "SUBLTDEQ", "DCALEQ", "TARSONSIQ", "EXIINDEQ", "KNRCONEQ", "ITCHOTELSEQ", "RELFOOEQ",
-        "KWILEQ", "US00217D1000", "US7811541090", "US26740W1099",
-    },
-}
-BARBELL_CORE_TICKERS = {
-    "LIQBENEQ", "HDFCMFGETFEQ", "IE00B4ND3602", "IE00BFMXXD54", "IE00BK5BQT80",
-    "MF-BANDHAN-NIFTY50", "MF-PPFAS-FLEXICAP",
-}
-BARBELL_UPSIDE_TICKERS = {
-    "MF-QUANT-MIDCAP", "MF-PGIM-INDIA-MIDCAP", "MF-QUANT-SMALLCAP-1", "MF-QUANT-SMALLCAP-2",
-    "MF-AXIS-SMALLCAP", "MF-MOTILAL-MIDCAP", "IE00BGV5VN51", "US00217D1000", "US69608A1088",
-    "US7811541090", "US26740W1099",
-}
-CAP_BUCKET_LOOKUP: dict[str, str] = {ticker: bucket for bucket, tickers in CAP_BUCKETS.items() for ticker in tickers}
-
 app = FastAPI(
     title="Vermo API",
     description="Consolidated portfolio tracker for global investments.",
@@ -152,10 +88,6 @@ class Holding(HoldingCreate):
     updated_at: str
 
 
-def utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat()
-
-
 def connect():
     """Configured backend: Postgres when VERMO_BACKEND=postgres, else SQLite
     at DATABASE_FILE (module global, so tests can point it at a tmp file)."""
@@ -164,73 +96,17 @@ def connect():
     return db.connect(DATABASE_FILE)
 
 
-def inferred_invested(value_eur: float, return_percent: float) -> float:
-    return round(value_eur / (1 + return_percent / 100), 2) if return_percent > -100 else value_eur
-
-
-def load_fx_rates(connection: Optional[sqlite3.Connection] = None) -> dict[str, float]:
-    owns_connection = connection is None
-    connection = connection or connect()
+def load_fx_rates(connection=None) -> dict[str, float]:
+    if connection is not None:
+        return portfolio_core.load_fx_rates(connection)
+    connection = connect()
     try:
-        rows = connection.execute("SELECT key, value FROM settings WHERE key LIKE 'fx_%'").fetchall()
-        rates = {row["key"].replace("fx_", ""): float(row["value"]) for row in rows}
-        return {**DEFAULT_FX_RATES, **rates}
+        return portfolio_core.load_fx_rates(connection)
     finally:
-        if owns_connection:
-            connection.close()
+        connection.close()
 
 
-def set_fx_rates(connection: sqlite3.Connection, rates: dict[str, float]) -> None:
-    for currency, rate in rates.items():
-        connection.execute(
-            """
-            INSERT INTO settings VALUES (?, ?, ?)
-            ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
-            """,
-            (f"fx_{currency}", str(rate), utc_now()),
-        )
-
-
-def fetch_json(url: str) -> dict:
-    request = urllib.request.Request(url, headers={"User-Agent": "Vermo/0.3"})
-    with urllib.request.urlopen(request, timeout=12) as response:
-        return json.load(response)
-
-
-def fetch_reference_fx() -> dict[str, float]:
-    payload = fetch_json("https://api.frankfurter.dev/v1/latest?base=EUR&symbols=INR,USD,GBP")
-    return {
-        "EUR": 1.0,
-        "INR": float(payload["rates"]["INR"]),
-        "USD": float(payload["rates"]["USD"]),
-        "GBP": float(payload["rates"]["GBP"]),
-    }
-
-
-def fetch_yahoo_quote(symbol: str) -> tuple[float, str]:
-    encoded_symbol = urllib.parse.quote(symbol)
-    payload = fetch_json(f"https://query1.finance.yahoo.com/v8/finance/chart/{encoded_symbol}?range=1d&interval=1d")
-    meta = payload["chart"]["result"][0]["meta"]
-    return float(meta["regularMarketPrice"]), meta["currency"]
-
-
-def classify_holding(ticker: str, asset_class: str) -> tuple[str, str]:
-    if ticker in MUTUAL_FUND_TICKERS:
-        return "Mutual fund", "Not applicable"
-    if ticker in ETF_TICKERS or asset_class == "ETFs & Funds":
-        return "ETF", "Not applicable"
-    bucket = CAP_BUCKET_LOOKUP.get(ticker)
-    if bucket:
-        return "Stock", bucket
-    return ("Stock", "Unclassified") if asset_class == "Equities" else ("Other", "Not applicable")
-
-
-def classify_barbell(ticker: str, asset_category: str, cap_bucket: str) -> tuple[str, str]:
-    if ticker in BARBELL_CORE_TICKERS:
-        return "Core", "Diversified, defensive, or liquid building block."
-    if ticker in BARBELL_UPSIDE_TICKERS or (asset_category == "Stock" and cap_bucket == "Small cap"):
-        return "Upside", "Intentional higher-risk exposure with asymmetric upside potential."
-    return "Review", "Does not clearly fit the core or upside side of the current heuristic."
+set_fx_rates = portfolio_core.set_fx_rates
 
 
 def _table_exists(connection: sqlite3.Connection, name: str) -> bool:
@@ -456,24 +332,8 @@ def load_holdings(user_id: str = LOCAL_USER_ID) -> list[Holding]:
     return [row_to_holding(row) for row in rows]
 
 
-def record_snapshots(connection: sqlite3.Connection, snapshot_date: Optional[str] = None, user_id: str = LOCAL_USER_ID) -> None:
-    snapshot_date = snapshot_date or date.today().isoformat()
-    rows = [row_to_holding(row) for row in connection.execute("SELECT * FROM holdings WHERE user_id = ?", (user_id,)).fetchall()]
-    for market in ("All", "India", "Global"):
-        holdings = rows if market == "All" else [item for item in rows if item.market == market]
-        summary = build_summary(holdings)
-        connection.execute(
-            """
-            INSERT INTO snapshots (user_id, snapshot_date, market, net_worth_eur, invested_eur, holdings_count, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(user_id, snapshot_date, market) DO UPDATE SET
-                net_worth_eur = excluded.net_worth_eur,
-                invested_eur = excluded.invested_eur,
-                holdings_count = excluded.holdings_count,
-                created_at = excluded.created_at
-            """,
-            (user_id, snapshot_date, market, summary["net_worth_eur"], summary["invested_eur"], len(holdings), utc_now()),
-        )
+def record_snapshots(connection, snapshot_date: Optional[str] = None, user_id: str = LOCAL_USER_ID) -> None:
+    portfolio_core.record_snapshots(connection, user_id=user_id, snapshot_date=snapshot_date)
 
 
 def list_snapshots(user_id: str = LOCAL_USER_ID) -> list[dict]:
@@ -795,103 +655,9 @@ def latest_refresh(user_id: str = LOCAL_USER_ID) -> Optional[dict]:
     return dict(row) if row else None
 
 
-def yahoo_symbol(holding: Holding) -> Optional[str]:
-    if holding.market == "India":
-        return INDIA_YAHOO_SYMBOLS.get(holding.ticker)
-    return GLOBAL_YAHOO_SYMBOLS.get(holding.ticker)
-
-
 @app.post("/api/prices/refresh")
 def refresh_prices(user_id: str = Depends(require_user_id)) -> dict:
-    details = []
-    refreshed = 0
-    skipped = 0
-    failed = 0
-    with data_lock, connect() as connection:
-        fx_rates = load_fx_rates(connection)
-        previous_fx_rates = dict(fx_rates)
-        try:
-            fx_rates = fetch_reference_fx()
-            set_fx_rates(connection, fx_rates)
-            details.append({"type": "fx", "status": "refreshed", "message": f'EUR/INR reference rate: {fx_rates["INR"]:.4f}'})
-        except Exception as error:
-            details.append({"type": "fx", "status": "failed", "message": f"FX refresh failed; retained previous rate. {error}"})
-
-        holdings = [
-            row_to_holding(row) for row in connection.execute(
-                "SELECT * FROM holdings WHERE user_id = ?", (user_id,)
-            ).fetchall()
-        ]
-        symbols = {symbol for holding in holdings if (symbol := yahoo_symbol(holding)) and holding.quantity is not None}
-        quotes = {}
-        quote_errors = {}
-        with ThreadPoolExecutor(max_workers=8) as executor:
-            futures = {executor.submit(fetch_yahoo_quote, symbol): symbol for symbol in symbols}
-            for future in as_completed(futures):
-                symbol = futures[future]
-                try:
-                    quotes[symbol] = future.result()
-                except Exception as error:
-                    quote_errors[symbol] = str(error)
-        for holding in holdings:
-            invested_eur = holding.invested_eur or inferred_invested(holding.value_eur, holding.return_percent)
-            if holding.source_currency == "INR":
-                if holding.quantity is not None and holding.average_cost is not None:
-                    invested_eur = holding.quantity * holding.average_cost / fx_rates["INR"]
-                else:
-                    invested_eur *= previous_fx_rates["INR"] / fx_rates["INR"]
-                if holding.quantity is not None and holding.current_price is not None:
-                    fx_value_eur = holding.quantity * holding.current_price / fx_rates["INR"]
-                else:
-                    fx_value_eur = holding.value_eur * previous_fx_rates["INR"] / fx_rates["INR"]
-                fx_return = (fx_value_eur / invested_eur - 1) * 100 if invested_eur else 0
-                connection.execute(
-                    "UPDATE holdings SET value_eur = ?, invested_eur = ?, return_percent = ?, updated_at = ? WHERE id = ?",
-                    (round(fx_value_eur, 2), round(invested_eur, 2), round(fx_return, 2), utc_now(), holding.id),
-                )
-            symbol = yahoo_symbol(holding)
-            if not symbol or holding.quantity is None:
-                skipped += 1
-                details.append({"ticker": holding.ticker, "status": "skipped", "message": "FX updated; no verified live-quote mapping."})
-                continue
-            try:
-                if symbol in quote_errors:
-                    raise ValueError(quote_errors[symbol])
-                quote, quote_currency = quotes[symbol]
-                if quote_currency not in fx_rates:
-                    raise ValueError(f"Unsupported quote currency: {quote_currency}")
-                price_eur = quote / fx_rates[quote_currency]
-                value_eur = holding.quantity * price_eur
-                return_percent = (value_eur / invested_eur - 1) * 100 if invested_eur else 0
-                displayed_price = quote if holding.market == "India" else price_eur
-                connection.execute(
-                    """
-                    UPDATE holdings
-                    SET current_price = ?, value_eur = ?, return_percent = ?, updated_at = ?
-                    WHERE id = ?
-                    """,
-                    (round(displayed_price, 4), round(value_eur, 2), round(return_percent, 2), utc_now(), holding.id),
-                )
-                refreshed += 1
-            except Exception as error:
-                failed += 1
-                details.append({"ticker": holding.ticker, "symbol": symbol, "status": "failed", "message": str(error)})
-
-        record_snapshots(connection, user_id=user_id)
-        run = {
-            "id": str(uuid4()),
-            "refreshed": refreshed,
-            "skipped": skipped,
-            "failed": failed,
-            "fx_rate_inr": fx_rates["INR"],
-            "details": details,
-            "created_at": utc_now(),
-        }
-        connection.execute(
-            "INSERT INTO refresh_runs (id, user_id, refreshed, skipped, failed, fx_rate_inr, details, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-            (run["id"], user_id, refreshed, skipped, failed, run["fx_rate_inr"], json.dumps(details), run["created_at"]),
-        )
-    return run
+    return portfolio_core.refresh_prices(user_id, connect_fn=connect)
 
 
 @app.post("/api/holdings", response_model=Holding, status_code=201)

@@ -14,6 +14,8 @@ import streamlit as st
 
 import budget_db
 import db
+import portfolio_core
+from market_data import classify_holding, classify_barbell
 from finance_math import (
     add_months,
     debt_projection,
@@ -92,23 +94,6 @@ TRANSACTION_COLUMN_ALIASES = {
     "fee": ("fee", "fees", "brokerage", "charges", "commission", "taxes"),
     "currency": ("currency", "ccy"),
 }
-
-MUTUAL_FUND_TICKERS = {
-    "MF-QUANT-MIDCAP", "MF-PGIM-INDIA-MIDCAP", "MF-BANDHAN-NIFTY50", "MF-HELIOS-FLEXICAP",
-    "MF-QUANT-SMALLCAP-1", "MF-MOTILAL-MIDCAP", "MF-QUANT-SMALLCAP-2", "MF-PPFAS-FLEXICAP",
-    "MF-AXIS-SMALLCAP",
-}
-ETF_TICKERS = {"HDFCMFGETFEQ", "LIQBENEQ", "IE00BGV5VN51", "IE00BFMXXD54", "IE00B4ND3602", "IE00BK5BQT80"}
-BARBELL_CORE_TICKERS = {"LIQBENEQ", "HDFCMFGETFEQ", "IE00B4ND3602", "IE00BFMXXD54", "IE00BK5BQT80", "MF-BANDHAN-NIFTY50", "MF-PPFAS-FLEXICAP"}
-BARBELL_UPSIDE_TICKERS = {"MF-QUANT-MIDCAP", "MF-PGIM-INDIA-MIDCAP", "MF-QUANT-SMALLCAP-1", "MF-QUANT-SMALLCAP-2", "MF-AXIS-SMALLCAP", "MF-MOTILAL-MIDCAP", "IE00BGV5VN51", "US00217D1000", "US69608A1088", "US7811541090", "US26740W1099"}
-
-CAP_BUCKETS = {
-    "Large cap": {"BAJFINEQ", "ICIBANEQ", "HDFBANEQ", "KOTMAHEQ", "TCSLTDEQ", "RELINDEQ", "TRELTDEQ", "EICMOTEQ", "JIOFINEQ", "ASIPAIEQ", "ITCLTDEQ", "HLLLTDEQ", "HDFCLIFEEQ", "US67066G1040", "US5949181045", "US02079K3059", "US64110L1061", "US30303M1027", "US0231351067", "NL0010273215", "US8740391003", "US81762P1021", "US11135F1012"},
-    "Mid cap": {"DIXONEQ", "NIITECEQ", "FINEORGEQ", "CLEANEQ", "RAINBOWEQ", "SAGILITYEQ", "BHELTDEQ", "ALKAMIEQ", "HOMEFIRSTEQ", "GODIGITEQ", "HDBFSEQ", "ROSSARIEQ", "US69608A1088"},
-    "Small cap": {"AMIORGEQ", "RATEGAINIQ", "LUMINDEQ", "RSYINTEQ", "UNIECOMEQ", "MASFINEQ", "LOGMICEQ", "SUBLTDEQ", "DCALEQ", "TARSONSIQ", "EXIINDEQ", "KNRCONEQ", "ITCHOTELSEQ", "RELFOOEQ", "KWILEQ", "US00217D1000", "US7811541090", "US26740W1099"},
-}
-CAP_BUCKET_LOOKUP: dict[str, str] = {ticker: bucket for bucket, tickers in CAP_BUCKETS.items() for ticker in tickers}
-
 
 st.set_page_config(page_title="Vermo", page_icon="V", layout="wide")
 
@@ -543,25 +528,6 @@ def manual_assets_total_eur() -> float:
     return float(rows[0]["total"]) if rows else 0.0
 
 
-def classify_holding(ticker: str, asset_class: str) -> tuple[str, str]:
-    if ticker in MUTUAL_FUND_TICKERS:
-        return "Mutual fund", "Not applicable"
-    if ticker in ETF_TICKERS or asset_class == "ETFs & Funds":
-        return "ETF", "Not applicable"
-    bucket = CAP_BUCKET_LOOKUP.get(ticker)
-    if bucket:
-        return "Stock", bucket
-    return ("Stock", "Unclassified") if asset_class == "Equities" else ("Other", "Not applicable")
-
-
-def classify_barbell(ticker: str, category: str, cap_bucket: str) -> tuple[str, str]:
-    if ticker in BARBELL_CORE_TICKERS:
-        return "Core", "Diversified, defensive, or liquid building block."
-    if ticker in BARBELL_UPSIDE_TICKERS or (category == "Stock" and cap_bucket == "Small cap"):
-        return "Upside", "Intentional higher-risk exposure with asymmetric upside potential."
-    return "Review", "Does not clearly fit the core or upside side of the current heuristic."
-
-
 def fx_rates() -> dict[str, float]:
     rows = load_rows("SELECT key, value FROM settings WHERE key LIKE 'fx_%'")
     return {**DEFAULT_FX_RATES, **{row["key"].replace("fx_", ""): float(row["value"]) for row in rows}}
@@ -870,20 +836,10 @@ st.sidebar.caption("Live prices")
 if st.sidebar.button("⟳ Refresh prices", use_container_width=True):
     with st.spinner("Fetching live quotes…"):
         try:
-            import urllib.request as _ureq, json as _json
-            # FastAPI derives the user from this session token (see main.py's
-            # require_user_id) rather than trusting a client-supplied user_id —
-            # a raw user_id in the URL used to be enough to act as anyone.
-            _req = _ureq.Request(
-                "http://127.0.0.1:8000/api/prices/refresh",
-                method="POST",
-                headers={
-                    "Content-Type": "application/json",
-                    "Authorization": f"Bearer {st.session_state.get('session_token', '')}",
-                },
-            )
-            with _ureq.urlopen(_req, timeout=60) as _r:
-                _run = _json.load(_r)
+            # In-process refresh (portfolio_core) — no localhost FastAPI hop,
+            # so the Streamlit app is self-contained for hosted deployments.
+            # LOCAL_USER_ID is the logged-in user (reassigned after require_login).
+            _run = portfolio_core.refresh_prices(LOCAL_USER_ID, connect_fn=connect)
             st.sidebar.success(f"Updated {_run['refreshed']} · skipped {_run['skipped']} · failed {_run['failed']}")
             st.rerun()
         except Exception as _e:
