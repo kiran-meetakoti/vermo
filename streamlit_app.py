@@ -14,6 +14,7 @@ import streamlit as st
 
 import budget_db
 import db
+import market_data
 import portfolio_core
 from market_data import classify_holding, classify_barbell
 from finance_math import (
@@ -675,6 +676,7 @@ def projection_table_html(current_value: float, monthly_addition: float, annual_
 
 def upsert_basic_holding(payload: dict) -> None:
     ticker = payload["ticker"].strip().upper()
+    payload.setdefault("yahoo_symbol", None)
     invested = payload.get("invested_eur") or round(payload["value_eur"] / (1 + payload["return_percent"] / 100), 2)
     category, cap_bucket = classify_holding(ticker, payload["asset_class"])
     role, reason = classify_barbell(ticker, category, cap_bucket)
@@ -700,14 +702,15 @@ def upsert_basic_holding(payload: dict) -> None:
             INSERT INTO holdings (
                 id, user_id, name, ticker, market, value_eur, return_percent, asset_class,
                 quantity, average_cost, current_price, invested_eur, source_currency, updated_at,
-                asset_category, cap_bucket, barbell_role, barbell_reason
+                asset_category, cap_bucket, barbell_role, barbell_reason, yahoo_symbol
             ) VALUES (
                 :id, :user_id, :name, :ticker, :market, :value_eur, :return_percent, :asset_class,
                 :quantity, :average_cost, :current_price, :invested_eur, :source_currency, :updated_at,
-                :asset_category, :cap_bucket, :barbell_role, :barbell_reason
+                :asset_category, :cap_bucket, :barbell_role, :barbell_reason, :yahoo_symbol
             )
             ON CONFLICT(user_id, ticker, market) DO UPDATE SET
                 name = excluded.name,
+                yahoo_symbol = COALESCE(excluded.yahoo_symbol, holdings.yahoo_symbol),
                 value_eur = excluded.value_eur,
                 return_percent = excluded.return_percent,
                 asset_class = excluded.asset_class,
@@ -1259,6 +1262,17 @@ if page == "Overview":
                 "<span style='color:var(--atlas-muted);font-size:13px'>Refresh prices to build performance history</span></div>",
                 unsafe_allow_html=True,
             )
+        # Instant history: reconstruct past daily snapshots from Yahoo closes
+        # + ECB FX so a new user isn't staring at an empty chart for weeks.
+        # Recorded (real) snapshots are never overwritten.
+        if len(snapshots) < 30 and st.button("⤺ Build 1 year of history from market data"):
+            with st.spinner("Reconstructing daily history from a year of market prices…"):
+                _backfill = portfolio_core.backfill_history(LOCAL_USER_ID, connect_fn=connect)
+            if _backfill["inserted"]:
+                st.success(f"Added {_backfill['inserted']} historical points from {_backfill['symbols']} instruments.")
+                st.rerun()
+            else:
+                st.info("Nothing to backfill — holdings need a live-quote mapping and a quantity.")
 
     with donut_col:
         # Wealth breakdown: India portfolio / Global portfolio / Other assets
@@ -2350,28 +2364,80 @@ else:
             st.caption(f"{item['source']} · {item['imported']} added · {item['updated']} updated · {item['created_at']}")
     with right:
         st.subheader("Add holding")
-        with st.form("add_holding"):
-            name = st.text_input("Asset name")
-            ticker = st.text_input("Ticker")
-            market = st.selectbox("Market", ["India", "Global"])
-            asset_class = st.selectbox("Asset class", ["Equities", "ETFs & Funds", "Fixed income", "Cash & others"])
-            value_eur = st.number_input("Current value in EUR", min_value=0.01, step=100.0)
-            return_percent = st.number_input("Return %", min_value=-100.0, max_value=1000.0, step=0.1)
-            submitted = st.form_submit_button("Add holding", type="primary")
-        if submitted:
-            upsert_basic_holding(
-                {
-                    "name": name,
-                    "ticker": ticker,
-                    "market": market,
-                    "value_eur": value_eur,
-                    "return_percent": return_percent,
-                    "asset_class": asset_class,
-                    "quantity": None,
-                    "average_cost": None,
-                    "current_price": None,
-                    "source_currency": "EUR",
-                }
+        tab_search, tab_manual = st.tabs(["Search any instrument", "Manual entry"])
+
+        with tab_search:
+            search_query = st.text_input(
+                "Search by name, ticker, or ISIN",
+                placeholder="e.g. Infosys, VWCE, IE00BK5BQT80",
             )
-            st.success("Holding added.")
-            st.rerun()
+            if search_query and len(search_query.strip()) >= 2:
+                try:
+                    search_results = market_data.search_symbols(search_query)
+                except Exception as search_error:
+                    search_results = []
+                    st.error(f"Search failed: {search_error}")
+                if not search_results:
+                    st.caption("No matches — try a different spelling, or use Manual entry.")
+                else:
+                    result_labels = [
+                        f"{r['name']} · {r['symbol']} ({r['exchange'] or '—'}, {r['type'] or 'instrument'})"
+                        for r in search_results
+                    ]
+                    picked = search_results[result_labels.index(st.selectbox("Matches", result_labels))]
+                    search_qty = st.number_input("Quantity you hold", min_value=0.0, step=1.0, key="search_qty")
+                    if st.button("Add with live quotes", type="primary", disabled=search_qty <= 0):
+                        try:
+                            quote_price, quote_currency = market_data.fetch_yahoo_quote(picked["symbol"])
+                            if quote_currency == "GBp":  # LSE quotes arrive in pence
+                                quote_price, quote_currency = quote_price / 100, "GBP"
+                            all_rates = fx_rates()
+                            if quote_currency not in all_rates:
+                                raise ValueError(f"Unsupported quote currency {quote_currency} — use Manual entry.")
+                            rate = all_rates[quote_currency]
+                            value_now_eur = round(search_qty * quote_price / rate, 2)
+                            picked_market = "India" if quote_currency == "INR" else "Global"
+                            upsert_basic_holding({
+                                "name": picked["name"],
+                                "ticker": picked["symbol"],
+                                "market": picked_market,
+                                "value_eur": value_now_eur,
+                                "return_percent": 0.0,  # cost basis starts at today's value; edit via Holdings
+                                "asset_class": "ETFs & Funds" if picked["type"].upper() in ("ETF", "FUND", "MUTUALFUND") else "Equities",
+                                "quantity": search_qty,
+                                "average_cost": round(quote_price, 4),
+                                "current_price": round(quote_price if picked_market == "India" else quote_price / rate, 4),
+                                "source_currency": "INR" if quote_currency == "INR" else "EUR",
+                                "yahoo_symbol": picked["symbol"],
+                            })
+                            st.success(f"Added {picked['name']} at {money(value_now_eur, currency, rates)} — live quotes enabled.")
+                            st.rerun()
+                        except Exception as add_error:
+                            st.error(f"Could not add holding: {add_error}")
+
+        with tab_manual:
+            with st.form("add_holding"):
+                name = st.text_input("Asset name")
+                ticker = st.text_input("Ticker")
+                market = st.selectbox("Market", ["India", "Global"])
+                asset_class = st.selectbox("Asset class", ["Equities", "ETFs & Funds", "Fixed income", "Cash & others"])
+                value_eur = st.number_input("Current value in EUR", min_value=0.01, step=100.0)
+                return_percent = st.number_input("Return %", min_value=-100.0, max_value=1000.0, step=0.1)
+                submitted = st.form_submit_button("Add holding", type="primary")
+            if submitted:
+                upsert_basic_holding(
+                    {
+                        "name": name,
+                        "ticker": ticker,
+                        "market": market,
+                        "value_eur": value_eur,
+                        "return_percent": return_percent,
+                        "asset_class": asset_class,
+                        "quantity": None,
+                        "average_cost": None,
+                        "current_price": None,
+                        "source_currency": "EUR",
+                    }
+                )
+                st.success("Holding added.")
+                st.rerun()

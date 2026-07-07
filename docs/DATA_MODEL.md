@@ -50,6 +50,7 @@ upsert against this key.
 | `asset_category` | `Stock` / `Mutual fund` / `ETF` / other — from `classify_holding()` |
 | `cap_bucket` | `Large cap` / `Mid cap` / `Small cap` / `Unclassified` — curated maps in `main.py` |
 | `barbell_role`, `barbell_reason` | `Core` / `Upside` / `Review` + explanation — from `classify_barbell()` |
+| `yahoo_symbol` | nullable; verified Yahoo symbol chosen via search when the holding was added (Postgres migration `002_holdings_yahoo_symbol.sql`). Overrides the curated maps on refresh/backfill (`portfolio_core.holding_symbol`); upserts keep an existing mapping via `COALESCE`. |
 | `updated_at` | ISO UTC |
 
 ### imports (main.py)

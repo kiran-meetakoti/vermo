@@ -78,6 +78,13 @@ def record_snapshots(connection, user_id: str, snapshot_date: Optional[str] = No
         )
 
 
+def holding_symbol(holding: dict) -> Optional[str]:
+    """The Yahoo symbol for a holding: the per-row mapping chosen via search
+    wins; the curated maps in market_data are the fallback for holdings
+    created before symbol search existed."""
+    return holding.get("yahoo_symbol") or market_data.yahoo_symbol(holding["ticker"], holding["market"])
+
+
 def refresh_prices(user_id: str, connect_fn: Callable) -> dict:
     """Refresh FX and delayed quotes for one user's holdings; returns the run
     summary that also gets written to refresh_runs. Moved verbatim from
@@ -104,7 +111,7 @@ def refresh_prices(user_id: str, connect_fn: Callable) -> dict:
         ]
         symbols = {
             symbol for holding in holdings
-            if (symbol := market_data.yahoo_symbol(holding["ticker"], holding["market"])) and holding["quantity"] is not None
+            if (symbol := holding_symbol(holding)) and holding["quantity"] is not None
         }
         quotes = {}
         quote_errors = {}
@@ -132,7 +139,7 @@ def refresh_prices(user_id: str, connect_fn: Callable) -> dict:
                     "UPDATE holdings SET value_eur = ?, invested_eur = ?, return_percent = ?, updated_at = ? WHERE id = ?",
                     (round(fx_value_eur, 2), round(invested_eur, 2), round(fx_return, 2), utc_now(), holding["id"]),
                 )
-            symbol = market_data.yahoo_symbol(holding["ticker"], holding["market"])
+            symbol = holding_symbol(holding)
             if not symbol or holding["quantity"] is None:
                 skipped += 1
                 details.append({"ticker": holding["ticker"], "status": "skipped", "message": "FX updated; no verified live-quote mapping."})
@@ -175,3 +182,116 @@ def refresh_prices(user_id: str, connect_fn: Callable) -> dict:
             (run["id"], user_id, refreshed, skipped, failed, run["fx_rate_inr"], json.dumps(details), run["created_at"]),
         )
     return run
+
+
+# ── History backfill ─────────────────────────────────────────────────────────
+
+def build_daily_series(
+    positions: list[dict],
+    histories: dict[str, tuple[dict[str, float], str]],
+    fx_by_day: dict[str, dict[str, float]],
+) -> dict[str, dict[str, tuple[float, float, int]]]:
+    """Pure core of the backfill: daily {date: {market: (net_worth_eur,
+    invested_eur, count)}} from per-symbol close histories and EUR-base FX.
+
+    positions: holding dicts (market, quantity, value_eur, invested_eur, and
+    holding_symbol() resolvable). Positions with a symbol+quantity are valued
+    at close/fx per day (forward-filling closes and FX over weekends and
+    holidays); everything else contributes its CURRENT value as a constant —
+    an approximation, but it keeps totals honest relative to today.
+    Days before a symbol's first close are skipped for that symbol (listing
+    date); invested is today's cost basis held constant (purchase dates are
+    not tracked here — XIRR work will refine this).
+    """
+    all_days = sorted({day for closes, _ in histories.values() for day in closes})
+    if not all_days:
+        return {}
+
+    fx_days = sorted(fx_by_day)
+    series: dict[str, dict[str, tuple[float, float, int]]] = {}
+    last_close: dict[str, float] = {}
+    last_fx: dict[str, float] = dict(DEFAULT_FX_RATES)
+    fx_index = 0
+
+    for day in all_days:
+        # Forward-fill FX up to this day.
+        while fx_index < len(fx_days) and fx_days[fx_index] <= day:
+            last_fx.update(fx_by_day[fx_days[fx_index]])
+            fx_index += 1
+        totals: dict[str, list[float]] = {"All": [0.0, 0.0, 0], "India": [0.0, 0.0, 0], "Global": [0.0, 0.0, 0]}
+        for position in positions:
+            symbol = holding_symbol(position)
+            valued = None
+            if symbol and symbol in histories and position.get("quantity") is not None:
+                closes, currency = histories[symbol]
+                if day in closes:
+                    last_close[symbol] = closes[day]
+                if symbol in last_close:
+                    rate = last_fx.get(currency, 1.0) if currency != "EUR" else 1.0
+                    valued = position["quantity"] * last_close[symbol] / rate
+            if valued is None:
+                # No history for this instrument (or before its listing):
+                # contribute today's value as a constant.
+                valued = position["value_eur"]
+            invested = position["invested_eur"] or 0.0
+            for market in ("All", position["market"]):
+                if market in totals:
+                    totals[market][0] += valued
+                    totals[market][1] += invested
+                    totals[market][2] += 1
+        series[day] = {
+            market: (round(net, 2), round(invested, 2), count)
+            for market, (net, invested, count) in totals.items()
+        }
+    return series
+
+
+def backfill_history(user_id: str, connect_fn: Callable, range_: str = "1y") -> dict:
+    """Populate past daily snapshots from Yahoo close history + ECB FX, so a
+    new user sees a real performance chart immediately instead of waiting
+    weeks for daily snapshots to accumulate.
+
+    Never overwrites genuinely recorded snapshots (ON CONFLICT DO NOTHING) —
+    today's live snapshot and any historical real ones always win."""
+    with connect_fn() as connection:
+        holdings = [dict(row) for row in connection.execute(
+            "SELECT * FROM holdings WHERE user_id = ?", (user_id,)
+        ).fetchall()]
+    if not holdings:
+        return {"days": 0, "symbols": 0, "inserted": 0}
+
+    symbols = {s for h in holdings if (s := holding_symbol(h)) and h.get("quantity") is not None}
+    histories: dict[str, tuple[dict[str, float], str]] = {}
+    with ThreadPoolExecutor(max_workers=8) as executor:
+        futures = {executor.submit(market_data.fetch_yahoo_history, symbol, range_): symbol for symbol in symbols}
+        for future in as_completed(futures):
+            symbol = futures[future]
+            try:
+                histories[symbol] = future.result()
+            except Exception:
+                pass  # symbol contributes its current value as a constant instead
+
+    all_days = sorted({day for closes, _ in histories.values() for day in closes})
+    if not all_days:
+        return {"days": 0, "symbols": 0, "inserted": 0}
+    try:
+        fx_by_day = market_data.fetch_fx_timeseries(all_days[0], all_days[-1])
+    except Exception:
+        fx_by_day = {}
+
+    series = build_daily_series(holdings, histories, fx_by_day)
+    today = date.today().isoformat()
+    inserted = 0
+    with connect_fn() as connection:
+        for day, markets in series.items():
+            if day >= today:
+                continue  # today belongs to the live record_snapshots path
+            for market, (net_worth, invested, count) in markets.items():
+                cursor = connection.execute(
+                    "INSERT INTO snapshots (user_id, snapshot_date, market, net_worth_eur, invested_eur, holdings_count, created_at) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?) "
+                    "ON CONFLICT(user_id, snapshot_date, market) DO NOTHING",
+                    (user_id, day, market, net_worth, invested, count, utc_now()),
+                )
+                inserted += max(cursor.rowcount, 0)
+    return {"days": len(series), "symbols": len(histories), "inserted": inserted}

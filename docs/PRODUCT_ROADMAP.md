@@ -117,12 +117,14 @@ Vermo records what you own; attractive products answer *how am I doing* and
 *what next*. Backend-first features that land in the web app now and the
 mobile app automatically:
 
-1. **Add any ticker via search** — Yahoo symbol search + autocomplete; a
-   per-holding `yahoo_symbol` mapping replaces "only curated tickers get
-   live prices" (the single biggest new-user friction today).
-2. **Instant history backfill** — build a year of daily net-worth history
-   from Yahoo historical closes + Frankfurter FX time series on first use;
-   an empty chart on day one kills day-two retention.
+1. [x] **Add any ticker via search** — done 2026-07-07: Yahoo symbol search
+   in Add holding ("Search any instrument" tab), per-holding `yahoo_symbol`
+   mapping (002 migration) with curated maps as fallback.
+2. [x] **Instant history backfill** — done 2026-07-07:
+   `portfolio_core.backfill_history` builds daily snapshots from Yahoo
+   closes + ECB FX time series (never overwrites real snapshots); Overview
+   offers it when history is sparse. Run for the founding account: 55
+   instruments → a full year of chart history.
 3. **XIRR** — money-weighted return from `broker_transactions` cash flows;
    value-vs-invested % is wrong under monthly investing, and the wedge
    audience (Kuvera/INDmoney users) expects XIRR.

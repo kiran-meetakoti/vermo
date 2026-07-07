@@ -136,3 +136,58 @@ def fetch_yahoo_quote(symbol: str) -> tuple[float, str]:
     payload = fetch_json(f"https://query1.finance.yahoo.com/v8/finance/chart/{encoded_symbol}?range=1d&interval=1d")
     meta = payload["chart"]["result"][0]["meta"]
     return float(meta["regularMarketPrice"]), meta["currency"]
+
+
+def search_symbols(query: str, limit: int = 8) -> list[dict]:
+    """Yahoo symbol search: name/ticker/ISIN → candidate instruments.
+    Each result: {symbol, name, exchange, type}. Lets users add ANY listed
+    instrument with a verified live-quote mapping instead of only the
+    curated maps above."""
+    encoded = urllib.parse.quote(query.strip())
+    payload = fetch_json(
+        f"https://query1.finance.yahoo.com/v1/finance/search?q={encoded}&quotesCount={limit}&newsCount=0"
+    )
+    results = []
+    for quote in payload.get("quotes", []):
+        if not quote.get("symbol"):
+            continue
+        results.append({
+            "symbol": quote["symbol"],
+            "name": quote.get("shortname") or quote.get("longname") or quote["symbol"],
+            "exchange": quote.get("exchDisp", ""),
+            "type": quote.get("typeDisp", ""),
+        })
+    return results[:limit]
+
+
+def fetch_yahoo_history(symbol: str, range_: str = "1y") -> tuple[dict[str, float], str]:
+    """Daily closing prices: ({'YYYY-MM-DD': close, ...}, quote_currency).
+    Days Yahoo reports without a close (halts) are dropped."""
+    encoded_symbol = urllib.parse.quote(symbol)
+    payload = fetch_json(
+        f"https://query1.finance.yahoo.com/v8/finance/chart/{encoded_symbol}?range={range_}&interval=1d"
+    )
+    result = payload["chart"]["result"][0]
+    timestamps = result.get("timestamp") or []
+    closes = result["indicators"]["quote"][0].get("close") or []
+    from datetime import datetime, timezone
+
+    series = {
+        datetime.fromtimestamp(ts, tz=timezone.utc).date().isoformat(): float(close)
+        for ts, close in zip(timestamps, closes)
+        if close is not None
+    }
+    return series, result["meta"]["currency"]
+
+
+def fetch_fx_timeseries(start_date: str, end_date: str) -> dict[str, dict[str, float]]:
+    """EUR-base reference rates per day from Frankfurter (ECB):
+    {'YYYY-MM-DD': {'INR': ..., 'USD': ..., 'GBP': ...}, ...}.
+    Weekends/holidays are absent — consumers forward-fill."""
+    payload = fetch_json(
+        f"https://api.frankfurter.dev/v1/{start_date}..{end_date}?base=EUR&symbols=INR,USD,GBP"
+    )
+    return {
+        day: {currency: float(rate) for currency, rate in rates.items()}
+        for day, rates in payload.get("rates", {}).items()
+    }

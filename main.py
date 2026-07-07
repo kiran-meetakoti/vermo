@@ -80,6 +80,9 @@ class HoldingCreate(BaseModel):
     cap_bucket: Literal["Large cap", "Mid cap", "Small cap", "Unclassified", "Not applicable"] = "Unclassified"
     barbell_role: Literal["Core", "Upside", "Review"] = "Review"
     barbell_reason: str = "Review whether this holding has a clear role."
+    # Verified Yahoo symbol picked via search; overrides the curated maps on
+    # refresh. None = fall back to market_data's curated mapping.
+    yahoo_symbol: Optional[str] = None
 
 
 class Holding(HoldingCreate):
@@ -237,10 +240,16 @@ def init_database() -> None:
                 cap_bucket TEXT NOT NULL DEFAULT 'Unclassified',
                 barbell_role TEXT NOT NULL DEFAULT 'Review',
                 barbell_reason TEXT NOT NULL DEFAULT 'Review whether this holding has a clear role.',
+                yahoo_symbol TEXT,
                 UNIQUE(user_id, ticker, market)
             )
             """
         )
+        # Additive for databases created before the column existed (002
+        # migration on Postgres). Curated maps remain the fallback.
+        holding_columns = {row["name"] for row in connection.execute("PRAGMA table_info(holdings)").fetchall()}
+        if "yahoo_symbol" not in holding_columns:
+            connection.execute("ALTER TABLE holdings ADD COLUMN yahoo_symbol TEXT")
         connection.execute(
             """
             CREATE TABLE IF NOT EXISTS imports (
@@ -364,15 +373,16 @@ def upsert_holding(connection: sqlite3.Connection, payload: HoldingCreate, holdi
             id, user_id, name, ticker, market, value_eur, return_percent, asset_class,
             quantity, average_cost, current_price, invested_eur, source_currency, updated_at
             , asset_category, cap_bucket
-            , barbell_role, barbell_reason
+            , barbell_role, barbell_reason, yahoo_symbol
         ) VALUES (
             :id, :user_id, :name, :ticker, :market, :value_eur, :return_percent, :asset_class,
             :quantity, :average_cost, :current_price, :invested_eur, :source_currency, :updated_at
             , :asset_category, :cap_bucket
-            , :barbell_role, :barbell_reason
+            , :barbell_role, :barbell_reason, :yahoo_symbol
         )
         ON CONFLICT(user_id, ticker, market) DO UPDATE SET
             name = excluded.name,
+            yahoo_symbol = COALESCE(excluded.yahoo_symbol, holdings.yahoo_symbol),
             value_eur = excluded.value_eur,
             return_percent = excluded.return_percent,
             asset_class = excluded.asset_class,
