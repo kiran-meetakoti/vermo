@@ -102,9 +102,12 @@ Do this now, while everything is still SQLite and low-stakes to fix.
      auto-categorization, N26 block extraction (income skipped, FX lines
      stripped, N26 category labels honored), page-boilerplate stripping,
      and the single-line fallback format.
-   - `ensure_recurring_expenses` — month-rollover and idempotency are easy
-     to get subtly wrong and hard to notice until rent/loan entries are
-     missing or doubled for some month.
+   - [x] `ensure_recurring_expenses` — moved into `budget_db.py` and covered
+     by `tests/test_recurring.py` (backfill, idempotent re-runs, year
+     rollover, template amounts, no doubled months, per-user scoping).
+     Projection/debt math also extracted (`finance_math.py`,
+     `tests/test_finance_math.py`). **Stage 1.5 is complete** — the app is
+     clear to start the Stage 2 Postgres migration.
    - [x] `main.py`'s FastAPI endpoints, via `TestClient` —
      `tests/test_api.py` now covers the auth dependency: 401 on
      missing/garbage/non-Bearer/expired tokens, identity derived from the

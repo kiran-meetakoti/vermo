@@ -13,6 +13,14 @@ import plotly.graph_objects as go
 import streamlit as st
 
 import budget_db
+from finance_math import (
+    add_months,
+    debt_projection,
+    future_value,
+    infer_annual_interest_rate,
+    months_until,
+    portfolio_projection,
+)
 from statement_parser import extract_pdf_transactions
 from auth.local_auth import current_user, logout, require_login
 
@@ -666,42 +674,6 @@ def percent(value: float) -> str:
     return f"{'+' if value > 0 else ''}{value:.1f}%"
 
 
-def future_value(value: float, annual_return_percent: float, years: float) -> float:
-    return value * ((1 + annual_return_percent / 100) ** years)
-
-
-def months_until(target_month: int, target_year: int) -> int:
-    today = date.today()
-    return max((target_year - today.year) * 12 + target_month - today.month, 0)
-
-
-def portfolio_projection(current_value: float, months: int, monthly_addition: float, one_time_addition: float, annual_return_percent: float) -> dict:
-    monthly_rate = (1 + annual_return_percent / 100) ** (1 / 12) - 1 if annual_return_percent else 0
-    value = current_value + one_time_addition
-    rows = []
-    for month in range(1, months + 1):
-        value *= 1 + monthly_rate
-        value += monthly_addition
-        if month <= 12 or month % 12 == 0 or month == months:
-            rows.append(
-                {
-                    "month": month,
-                    "date": add_months(date.today(), month),
-                    "value": value,
-                    "contributed": one_time_addition + monthly_addition * month,
-                }
-            )
-    contributed = one_time_addition + monthly_addition * months
-    return {
-        "months": months,
-        "target_date": add_months(date.today(), months),
-        "value": value,
-        "contributed": contributed,
-        "growth": value - current_value - contributed,
-        "rows": rows,
-    }
-
-
 def projection_table_html(current_value: float, monthly_addition: float, annual_return_percent: float, currency: str, rates: dict[str, float]) -> str:
     rows = []
     for years in (1, 3, 5, 10):
@@ -715,75 +687,6 @@ def projection_table_html(current_value: float, monthly_addition: float, annual_
             f"<td class='positive'>{money(added_value['value'] - static_value['value'], currency, rates)}</td></tr>"
         )
     return "<table><thead><tr><th>Period</th><th>Without additions</th><th>New money added</th><th>With additions</th><th>Extra value</th></tr></thead><tbody>" + "".join(rows) + "</tbody></table>"
-
-
-def add_months(start_date: date, months: int) -> date:
-    month_index = start_date.month - 1 + months
-    year = start_date.year + month_index // 12
-    month = month_index % 12 + 1
-    day = min(start_date.day, [31, 29 if year % 4 == 0 and (year % 100 != 0 or year % 400 == 0) else 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][month - 1])
-    return date(year, month, day)
-
-
-def debt_projection(balance: float, scheduled_payment: float, extra_monthly: float = 0, one_time_extra: float = 0, annual_interest: float = 0) -> dict:
-    balance = max(balance - one_time_extra, 0)
-    monthly_rate = annual_interest / 100 / 12
-    monthly_payment = scheduled_payment + extra_monthly
-    total_paid = one_time_extra
-    total_interest = 0.0
-    months = 0
-    schedule = []
-
-    if balance <= 0:
-        return {"months": 0, "payoff_date": date.today(), "total_paid": total_paid, "total_interest": 0.0, "schedule": []}
-    if monthly_payment <= 0:
-        return {"months": math.inf, "payoff_date": None, "total_paid": total_paid, "total_interest": math.inf, "schedule": []}
-
-    while balance > 0.01 and months < 1200:
-        interest = balance * monthly_rate
-        balance += interest
-        payment = min(monthly_payment, balance)
-        principal = max(payment - interest, 0)
-        balance -= payment
-        months += 1
-        total_paid += payment
-        total_interest += interest
-        schedule.append(
-            {
-                "Month": months,
-                "Date": add_months(date.today(), months),
-                "Payment": payment,
-                "Principal": min(principal, payment),
-                "Interest": interest,
-                "Remaining": max(balance, 0),
-            }
-        )
-        if interest >= monthly_payment and monthly_rate > 0:
-            return {"months": math.inf, "payoff_date": None, "total_paid": math.inf, "total_interest": math.inf, "schedule": schedule}
-
-    return {
-        "months": months,
-        "payoff_date": add_months(date.today(), months),
-        "total_paid": total_paid,
-        "total_interest": total_interest,
-        "schedule": schedule,
-    }
-
-
-def infer_annual_interest_rate(balance: float, payment: float, months: int) -> float:
-    if months <= 0 or payment <= balance / months:
-        return 0.0
-    low = 0.0
-    high = 0.05
-    for _ in range(100):
-        monthly_rate = (low + high) / 2
-        implied_payment = balance * monthly_rate / (1 - (1 + monthly_rate) ** (-months))
-        if implied_payment < payment:
-            low = monthly_rate
-        else:
-            high = monthly_rate
-    monthly_rate = (low + high) / 2
-    return ((1 + monthly_rate) ** 12 - 1) * 100
 
 
 def upsert_basic_holding(payload: dict) -> None:

@@ -65,6 +65,7 @@ would flip this: the API becomes the only data path.
 | `auth/local_auth.py` | ~480 | Local email+password auth. PBKDF2-SHA256 hashing, session tokens in `auth.db`, 7-day inactivity timeout. `resolve_session()` is Streamlit-free so FastAPI can import it. Streamlit-facing helpers: `require_login()`, `current_user()`, `logout()`. |
 | `budget_db.py` | ~100 | Extracted budget-expense data layer (`add_expense`, `expense_exists` duplicate guard). Exists so this logic is importable and unit-testable — `streamlit_app.py` executes login/rendering at import time and cannot be imported by tests. **This is the pattern to follow when extracting more logic** (see DEVELOPMENT.md). |
 | `statement_parser.py` | ~220 | Extracted bank/credit-card statement PDF parser (N26-style multi-line blocks + single-line fallback, date/amount parsing, keyword auto-categorization). Streamlit-free for the same testability reason. |
+| `finance_math.py` | ~125 | Extracted pure financial math: portfolio growth projections, debt payoff schedules, annuity interest-rate inference, month arithmetic. Date-dependent functions take an optional `today` so tests can pin the current date. |
 | `index.html`, `app.js`, `styles.css` | ~600 | Legacy vanilla-JS dashboard served by FastAPI at `/`. Portfolio-only; predates the Streamlit UI. |
 | `run_streamlit.py` | 46 | Streamlit launcher with a Python 3.9 Protocol-dataclass workaround. |
 | `tests/` | — | Pytest suite: auth (`test_auth.py`), budget dedup (`test_budget.py`), API auth (`test_api.py`). |
