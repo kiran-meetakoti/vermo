@@ -1033,6 +1033,19 @@ st.markdown(
     .fd-metric-label{font-size:11px;font-weight:700;color:var(--atlas-muted);text-transform:uppercase;letter-spacing:.5px}
     .fd-metric-value{font-size:1.35rem;font-weight:800;color:var(--atlas-ink);line-height:1.1;margin-top:2px}
     .fd-metric-sub{font-size:12px;font-weight:600;color:var(--atlas-muted)}
+    /* ── Overview hero + tiles (mirrors the mobile app's dashboard) ── */
+    .vm-hero{display:flex;flex-direction:column;gap:4px;background:linear-gradient(135deg,#16806a,#1a9678);
+             border-radius:14px;padding:22px 24px;margin-bottom:12px;box-shadow:0 6px 18px rgba(22,128,106,.25)}
+    .vm-hero-label{font-size:11px;font-weight:800;color:#d3efe6;text-transform:uppercase;letter-spacing:1px}
+    .vm-hero-value{font-size:2.3rem;font-weight:800;color:#ffffff;line-height:1.1}
+    .vm-hero-sub{font-size:13px;font-weight:600;color:#d3efe6}
+    .vm-tiles{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:20px}
+    .vm-tile{background:var(--atlas-panel);border:1px solid var(--atlas-line);border-radius:12px;
+             padding:16px 18px;display:flex;flex-direction:column;gap:4px;box-shadow:0 2px 8px rgba(23,32,51,.04)}
+    .vm-tile-label{font-size:10.5px;font-weight:800;color:var(--atlas-muted);text-transform:uppercase;letter-spacing:.8px}
+    .vm-tile-value{font-size:1.45rem;font-weight:800;color:var(--atlas-ink);line-height:1.1;margin-top:2px}
+    .vm-tile-sub{font-size:12px;font-weight:600;color:var(--atlas-muted)}
+    @media (max-width:900px){.vm-tiles{grid-template-columns:1fr}}
     /* ── Allocation panels ── */
     .alloc-panel{background:var(--atlas-panel);border:1px solid var(--atlas-line);border-radius:10px;padding:16px 18px;box-shadow:0 2px 8px rgba(23,32,51,.04);height:100%}
     .ap-title{font-size:11px;font-weight:700;color:var(--atlas-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:14px}
@@ -1174,26 +1187,26 @@ if page in {"Overview", "Holdings", "Import & manage"}:
             {f"<span class='fd-tag green'>{len(other_assets)} other assets</span>" if other_assets else ""}
           </div>
         </div>
-        <div class='fd-metrics'>
-          <div class='fd-metric primary'>
-            <span class='fd-metric-label'>Total wealth</span>
-            <span class='fd-metric-value'>{money(total_net_worth, currency, rates)}</span>
-            <span class='fd-metric-sub'>portfolio + other assets</span>
+        <div class='vm-hero'>
+          <span class='vm-hero-label'>Total wealth</span>
+          <span class='vm-hero-value'>{money(total_net_worth, currency, rates)}</span>
+          <span class='vm-hero-sub'>portfolio {money(summary["net_worth_eur"], currency, rates)} · other assets {money(other_assets_total, currency, rates)}</span>
+        </div>
+        <div class='vm-tiles'>
+          <div class='vm-tile'>
+            <span class='vm-tile-label'>Profit / Loss</span>
+            <span class='vm-tile-value' style='color:{ret_color}'>{ret_sign}{money(summary["total_returns_eur"], currency, rates)}</span>
+            <span class='vm-tile-sub'>{ret_sign}{summary["total_return_percent"]:.1f}% on invested{xirr_note}</span>
           </div>
-          <div class='fd-metric teal'>
-            <span class='fd-metric-label'>Portfolio value</span>
-            <span class='fd-metric-value'>{money(summary["net_worth_eur"], currency, rates)}</span>
-            <span class='fd-metric-sub'>across {len(items)} positions</span>
+          <div class='vm-tile'>
+            <span class='vm-tile-label'>Portfolio value</span>
+            <span class='vm-tile-value'>{money(summary["net_worth_eur"], currency, rates)}</span>
+            <span class='vm-tile-sub'>across {len(items)} positions · India + Global</span>
           </div>
-          <div class='fd-metric {"green" if summary["total_returns_eur"] >= 0 else "red"}'>
-            <span class='fd-metric-label'>Profit / Loss</span>
-            <span class='fd-metric-value' style='color:{ret_color}'>{ret_sign}{money(summary["total_returns_eur"], currency, rates)}</span>
-            <span class='fd-metric-sub' style='color:{ret_color}'>{ret_sign}{summary["total_return_percent"]:.1f}% on invested{xirr_note}</span>
-          </div>
-          <div class='fd-metric {"amber" if other_assets_total > 0 else ""}'>
-            <span class='fd-metric-label'>Other assets</span>
-            <span class='fd-metric-value'>{money(other_assets_total, currency, rates)}</span>
-            <span class='fd-metric-sub'>{other_pct:.1f}% of total wealth{" · " + str(len(other_assets)) + " items" if other_assets else ""}</span>
+          <div class='vm-tile'>
+            <span class='vm-tile-label'>Other assets</span>
+            <span class='vm-tile-value'>{money(other_assets_total, currency, rates)}</span>
+            <span class='vm-tile-sub'>{other_pct:.1f}% of total wealth{" · " + str(len(other_assets)) + " items" if other_assets else ""}</span>
           </div>
         </div>
         """,
