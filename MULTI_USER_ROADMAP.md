@@ -128,7 +128,10 @@ twice this week.
 Goal: a database that handles real concurrent multi-user writes, plus a
 managed auth provider instead of the homegrown password table.
 
-1. Create a Supabase project (free tier to start).
+1. [x] Create a Supabase project (free tier to start) — created 2026-07-07,
+   project ref `oxsfgdhrdkhpyfmgmrhe`; its MCP server is registered in
+   `.mcp.json` so agent sessions can inspect/apply schema directly (requires
+   a one-time interactive `claude /mcp` authentication per developer).
 2. Recreate the schema in Postgres:
    - SQLite `TEXT PRIMARY KEY` → Postgres `uuid PRIMARY KEY DEFAULT gen_random_uuid()`
    - `user_id` columns become `uuid REFERENCES auth.users(id)` — Supabase
