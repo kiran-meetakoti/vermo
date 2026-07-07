@@ -295,3 +295,51 @@ def backfill_history(user_id: str, connect_fn: Callable, range_: str = "1y") -> 
                 )
                 inserted += max(cursor.rowcount, 0)
     return {"days": len(series), "symbols": len(histories), "inserted": inserted}
+
+
+# ── Money-weighted return (XIRR) ─────────────────────────────────────────────
+
+def snapshot_cash_flows(snapshots: list[dict]) -> list[tuple[date, float]]:
+    """Derive dated cash flows from the snapshot history (pure, testable).
+
+    Contributions/withdrawals are inferred from day-over-day changes in
+    invested_eur (cost basis): the opening basis is the initial investment,
+    each later increase is new money in, each decrease is money out. The
+    final snapshot's net worth closes the series as the terminal value.
+    Sign convention matches finance_math.xirr: money in negative, money out
+    and terminal value positive.
+
+    An approximation, not a ledger — until per-transaction history exists
+    everywhere (broker_transactions covers only broker imports), cost-basis
+    deltas are the honest reconstruction of when money entered.
+    """
+    rows = sorted(snapshots, key=lambda r: r["snapshot_date"])
+    if len(rows) < 2:
+        return []
+    flows: list[tuple[date, float]] = []
+    previous_invested = 0.0
+    for row in rows:
+        delta = (row["invested_eur"] or 0.0) - previous_invested
+        if abs(delta) >= 0.01:
+            flows.append((date.fromisoformat(row["snapshot_date"][:10]), -delta))
+        previous_invested = row["invested_eur"] or 0.0
+    last = rows[-1]
+    flows.append((date.fromisoformat(last["snapshot_date"][:10]), last["net_worth_eur"] or 0.0))
+    return flows
+
+
+def portfolio_xirr(user_id: str, connect_fn: Callable, market: str = "All") -> Optional[float]:
+    """Annualized money-weighted return for a user's portfolio, or None when
+    the history is too short (< 90 days) or no meaningful rate exists."""
+    from finance_math import xirr
+
+    with connect_fn() as connection:
+        snapshots = [dict(row) for row in connection.execute(
+            "SELECT snapshot_date, net_worth_eur, invested_eur FROM snapshots "
+            "WHERE user_id = ? AND market = ? ORDER BY snapshot_date",
+            (user_id, market),
+        ).fetchall()]
+    flows = snapshot_cash_flows(snapshots)
+    if not flows or (flows[-1][0] - flows[0][0]).days < 90:
+        return None
+    return xirr(flows)

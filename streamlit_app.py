@@ -1150,6 +1150,13 @@ if page in {"Overview", "Holdings", "Import & manage"}:
     other_pct = other_assets_total / total_net_worth * 100 if total_net_worth else 0
 
     health_tag_cls = "green" if health_score >= 75 else "amber"
+    # Money-weighted annual return — the honest number under monthly investing
+    # (plain P/L% overstates/understates depending on when money went in).
+    try:
+        xirr_value = portfolio_core.portfolio_xirr(LOCAL_USER_ID, connect_fn=connect)
+    except Exception:
+        xirr_value = None
+    xirr_note = f" · {xirr_value * 100:+.1f}% p.a. (XIRR)" if xirr_value is not None else ""
     st.markdown(
         f"""
         <div class='fd-header'>
@@ -1177,7 +1184,7 @@ if page in {"Overview", "Holdings", "Import & manage"}:
           <div class='fd-metric {"green" if summary["total_returns_eur"] >= 0 else "red"}'>
             <span class='fd-metric-label'>Profit / Loss</span>
             <span class='fd-metric-value' style='color:{ret_color}'>{ret_sign}{money(summary["total_returns_eur"], currency, rates)}</span>
-            <span class='fd-metric-sub' style='color:{ret_color}'>{ret_sign}{summary["total_return_percent"]:.1f}% on invested</span>
+            <span class='fd-metric-sub' style='color:{ret_color}'>{ret_sign}{summary["total_return_percent"]:.1f}% on invested{xirr_note}</span>
           </div>
           <div class='fd-metric {"amber" if other_assets_total > 0 else ""}'>
             <span class='fd-metric-label'>Other assets</span>

@@ -121,3 +121,40 @@ def infer_annual_interest_rate(balance: float, payment: float, months: int) -> f
             high = monthly_rate
     monthly_rate = (low + high) / 2
     return ((1 + monthly_rate) ** 12 - 1) * 100
+
+
+def xirr(cash_flows: list[tuple[date, float]]) -> float | None:
+    """Money-weighted annualized return (Excel-XIRR-compatible: actual days,
+    365-day year). Sign convention: money in is negative (a purchase), money
+    out / terminal value is positive.
+
+    Returns the annual rate as a fraction (0.12 = 12% p.a.), or None when no
+    meaningful rate exists (fewer than two flows, all flows one-signed, or no
+    root in (-99.99%, +1000%)). Bisection, not Newton — slower but cannot
+    diverge, and this renders on the Overview page where a wrong number is
+    worse than no number.
+    """
+    flows = sorted((d, a) for d, a in cash_flows if abs(a) > 1e-9)
+    if len(flows) < 2:
+        return None
+    if not (any(a < 0 for _, a in flows) and any(a > 0 for _, a in flows)):
+        return None
+    start = flows[0][0]
+    times = [(d - start).days / 365.0 for d, _ in flows]
+    amounts = [a for _, a in flows]
+
+    def npv(rate: float) -> float:
+        return sum(a / (1 + rate) ** t for a, t in zip(amounts, times))
+
+    low, high = -0.9999, 10.0
+    npv_low = npv(low)
+    if npv_low * npv(high) > 0:
+        return None
+    for _ in range(200):
+        mid = (low + high) / 2
+        if npv_low * npv(mid) <= 0:
+            high = mid
+        else:
+            low = mid
+            npv_low = npv(low)
+    return round((low + high) / 2, 6)

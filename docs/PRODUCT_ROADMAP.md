@@ -125,9 +125,12 @@ mobile app automatically:
    closes + ECB FX time series (never overwrites real snapshots); Overview
    offers it when history is sparse. Run for the founding account: 55
    instruments → a full year of chart history.
-3. **XIRR** — money-weighted return from `broker_transactions` cash flows;
-   value-vs-invested % is wrong under monthly investing, and the wedge
-   audience (Kuvera/INDmoney users) expects XIRR.
+3. [x] **XIRR** — done 2026-07-07: bisection solver in `finance_math.xirr`
+   (Excel-parity tested), cash flows derived from cost-basis deltas in the
+   snapshot history (`portfolio_core.snapshot_cash_flows`), shown on the
+   Overview P/L tile when ≥90 days of history exist. Refinement for later:
+   feed real `broker_transactions` dates once broker imports are
+   first-class (P4), replacing the cost-basis approximation.
 4. **Dividends & income view** — what does my wealth pay me?
 5. **Named goals** — wrap the existing `finance_math` projections in goals
    with on-track/off-track status ("House deposit €60k by 2028").
