@@ -111,6 +111,39 @@ The Expo app needs a complete API; latency needs to die.
 **Exit criteria:** every user action possible in Streamlit is possible via
 documented, tested, EU-hosted API endpoints with JWT auth.
 
+## Phase 2.5 — Product core (interleaves with P2) · "how am I doing?"
+
+Vermo records what you own; attractive products answer *how am I doing* and
+*what next*. Backend-first features that land in the web app now and the
+mobile app automatically:
+
+1. **Add any ticker via search** — Yahoo symbol search + autocomplete; a
+   per-holding `yahoo_symbol` mapping replaces "only curated tickers get
+   live prices" (the single biggest new-user friction today).
+2. **Instant history backfill** — build a year of daily net-worth history
+   from Yahoo historical closes + Frankfurter FX time series on first use;
+   an empty chart on day one kills day-two retention.
+3. **XIRR** — money-weighted return from `broker_transactions` cash flows;
+   value-vs-invested % is wrong under monthly investing, and the wedge
+   audience (Kuvera/INDmoney users) expects XIRR.
+4. **Dividends & income view** — what does my wealth pay me?
+5. **Named goals** — wrap the existing `finance_math` projections in goals
+   with on-track/off-track status ("House deposit €60k by 2028").
+
+**Wedge differentiators (build with/into the mobile launch, P3):**
+- **FX-split performance** — "18% market, −4% rupee": separate market gain
+  from currency effect per market. No mainstream tracker does this.
+- **Remittance radar** — EUR↔INR target-rate alerts + transfer log with
+  achieved rates; creates a daily-open habit and pairs with push.
+- **Proof-of-funds PDF** — polished net-worth statement export (visas,
+  mortgages).
+- **Tax awareness (light)** — DE: Sparer-Pauschbetrag usage, Vorabpauschale
+  estimate; IN: LTCG/STCG bucketing. Awareness, not filing.
+
+Retention compounders for later (post-P3): rebalancing with drift alerts,
+benchmark-vs-VWCE comparison, insight notifications (subscription creep,
+budget pace), household read-only sharing.
+
 ## Phase 3 — The mobile app (6–10 weeks) · "in your pocket"
 
 Expo/React Native, TypeScript, one repo (`vermo-mobile` or monorepo folder).
