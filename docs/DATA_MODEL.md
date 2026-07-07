@@ -130,8 +130,22 @@ when `holdings` is empty **across all users**, so a claim can't retrigger it.
 
 ## Postgres migration mapping (roadmap Stage 2)
 
+The target schema is checked in at `migrations/postgres/001_initial_schema.sql`
+(idempotent; apply via the Supabase SQL editor or MCP). Key mappings:
+
 - `TEXT PRIMARY KEY` UUIDs → `uuid PRIMARY KEY DEFAULT gen_random_uuid()`
-- `user_id` → `uuid REFERENCES auth.users(id)` (Supabase Auth), RLS policy
-  `user_id = auth.uid()` per table
+  (existing UUID4 ids migrate as-is, preserving `import_id` references)
+- `user_id` → `uuid REFERENCES auth.users(id) ON DELETE CASCADE` (Supabase
+  Auth), with an owner-only RLS policy `user_id = auth.uid()` on every
+  per-user table; `settings` is read-only to users, written via service role
+- Money `REAL` → `numeric(14,2)` (prices/costs `numeric(14,4)`); rates and
+  percents stay `double precision`; `is_recurring` int → `boolean`;
+  `refresh_runs.details` JSON text → `jsonb`
+- ISO timestamp strings → `timestamptz`; `YYYY-MM-DD` strings → `date`
 - `?` placeholders → `%s`; `INSERT ... ON CONFLICT` carries over unchanged
 - `auth/local_auth.py` retires in favor of Supabase Auth
+
+One-time data copy: `scripts/migrate_sqlite_to_postgres.py` (dry-run by
+default flag choice; only rows whose `user_id` is explicitly mapped via
+`--user-map old=new` are migrated; idempotent `ON CONFLICT DO NOTHING`).
+Connection via `DATABASE_URL` in `.env` — see `.env.example`.

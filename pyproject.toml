@@ -19,6 +19,7 @@ package = false
 [dependency-groups]
 dev = [
     "httpx>=0.28.1",
+    "psycopg[binary]>=3.2",
     "pytest>=8.4.2",
 ]
 
