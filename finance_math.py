@@ -158,3 +158,20 @@ def xirr(cash_flows: list[tuple[date, float]]) -> float | None:
             low = mid
             npv_low = npv(low)
     return round((low + high) / 2, 6)
+
+
+def required_monthly_contribution(current_value: float, target_value: float, months: int, annual_return_percent: float) -> float:
+    """Monthly amount needed to grow current_value to target_value in
+    `months`, assuming monthly compounding at the annual rate (the same
+    convention portfolio_projection uses). 0.0 when the target is already
+    reached or no time remains."""
+    if months <= 0 or target_value <= current_value:
+        return 0.0
+    monthly_rate = (1 + annual_return_percent / 100) ** (1 / 12) - 1 if annual_return_percent else 0.0
+    grown_current = current_value * (1 + monthly_rate) ** months
+    if grown_current >= target_value:
+        return 0.0
+    if monthly_rate == 0.0:
+        return round((target_value - current_value) / months, 2)
+    annuity_factor = ((1 + monthly_rate) ** months - 1) / monthly_rate
+    return round((target_value - grown_current) / annuity_factor, 2)

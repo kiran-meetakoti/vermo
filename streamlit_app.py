@@ -14,6 +14,7 @@ import streamlit as st
 
 import budget_db
 import db
+import goals_db
 import income_db
 import market_data
 import portfolio_core
@@ -845,7 +846,7 @@ st.sidebar.caption("Display")
 theme_mode = st.sidebar.selectbox("Theme", ["Linear Light", "Midnight Dark"], index=0)
 currency = st.sidebar.selectbox("Base currency", ["EUR", "USD", "INR"])
 st.sidebar.caption("Navigation")
-page = st.sidebar.radio("View", ["Overview", "Holdings", "Income", "Other assets", "Broker imports", "Debt tracker", "Budget tracker", "Import & manage"], label_visibility="collapsed")
+page = st.sidebar.radio("View", ["Overview", "Holdings", "Income", "Goals", "Other assets", "Broker imports", "Debt tracker", "Budget tracker", "Import & manage"], label_visibility="collapsed")
 
 st.sidebar.markdown("---")
 st.sidebar.caption("Live prices")
@@ -1117,6 +1118,7 @@ ensure_recurring_expenses()
 init_broker_tables()
 init_manual_assets_table()
 income_db.ensure_schema()  # no-op on Postgres (003 migration owns it)
+goals_db.ensure_schema()   # no-op on Postgres (004 migration owns it)
 
 if LOCAL_USER_ID != LEGACY_USER_ID and has_legacy_data() and not holdings():
     st.info(
@@ -1708,6 +1710,87 @@ elif page == "Income":
                 )
                 if row_r.button("✕", key=f"del_income_{event['id']}"):
                     income_db.delete_income(LOCAL_USER_ID, event["id"])
+                    st.rerun()
+
+elif page == "Goals":
+    goal_items = holdings()
+    goal_summary = summarize(goal_items)
+    goal_total = goal_summary["net_worth_eur"] + manual_assets_total_eur()
+
+    st.markdown(
+        f"<div class='fd-section-title'>Financial goals</div>"
+        f"<div style='font-size:12.5px;color:var(--atlas-muted);margin:-4px 0 14px'>"
+        f"Measured against total wealth ({money(goal_total, currency, rates)}). Goals are lenses, "
+        f"not allocations — several goals can reference the same money.</div>",
+        unsafe_allow_html=True,
+    )
+
+    list_col, form_col = st.columns([1.7, 1])
+
+    with list_col:
+        user_goals = goals_db.goals(LOCAL_USER_ID)
+        if not user_goals:
+            st.markdown(
+                "<div class='fd-panel' style='height:160px;display:flex;align-items:center;justify-content:center'>"
+                "<span style='color:var(--atlas-muted);font-size:13px'>No goals yet — name your first one on the right</span></div>",
+                unsafe_allow_html=True,
+            )
+        for goal in user_goals:
+            status = goals_db.goal_status(goal, goal_total)
+            if status["reached"]:
+                tag = "<span class='fd-tag green'>Reached 🎉</span>"
+                detail = "Target met — consider raising it."
+            elif status["on_track"]:
+                tag = "<span class='fd-tag green'>On track</span>"
+                detail = (
+                    f"Projected {money(status['projected_eur'], currency, rates)} by "
+                    f"{goal['target_date'][:10]} with {money(goal['monthly_contribution'], currency, rates)}/mo "
+                    f"at {goal['expected_return_percent']:.1f}% p.a."
+                )
+            else:
+                tag = "<span class='fd-tag amber'>Behind</span>"
+                detail = (
+                    f"Projected {money(status['projected_eur'], currency, rates)} — "
+                    f"needs {money(status['required_monthly'], currency, rates)}/mo "
+                    f"(now {money(goal['monthly_contribution'], currency, rates)}/mo) to reach "
+                    f"{money(goal['target_eur'], currency, rates)} by {goal['target_date'][:10]}."
+                )
+            row_l, row_r = st.columns([6, 1])
+            with row_l:
+                st.markdown(
+                    f"<div style='background:var(--atlas-panel);border:1px solid var(--atlas-line);border-radius:10px;padding:14px 18px;margin-bottom:10px'>"
+                    f"<div style='display:flex;align-items:center;gap:10px;margin-bottom:6px'>"
+                    f"<strong style='color:var(--atlas-ink);font-size:14px'>{goal['name']}</strong>{tag}"
+                    f"<span style='margin-left:auto;font-size:12px;color:var(--atlas-muted)'>{status['months_left']} months left</span></div>"
+                    f"<div style='background:var(--atlas-line);border-radius:6px;height:8px;overflow:hidden;margin-bottom:6px'>"
+                    f"<div style='background:{'#16a34a' if status['on_track'] else '#f59e0b'};height:8px;width:{status['progress_percent']}%'></div></div>"
+                    f"<div style='display:flex;gap:16px;font-size:12.5px;color:var(--atlas-muted)'>"
+                    f"<span><strong style='color:var(--atlas-ink)'>{money(goal_total, currency, rates)}</strong> of {money(goal['target_eur'], currency, rates)} ({status['progress_percent']:.0f}%)</span>"
+                    f"<span>{detail}</span></div>"
+                    f"</div>",
+                    unsafe_allow_html=True,
+                )
+            if row_r.button("✕", key=f"del_goal_{goal['id']}"):
+                goals_db.delete_goal(LOCAL_USER_ID, goal["id"])
+                st.rerun()
+
+    with form_col:
+        st.markdown("<div class='fd-section-title'>New goal</div>", unsafe_allow_html=True)
+        with st.form("add_goal", clear_on_submit=True):
+            goal_name = st.text_input("Name", placeholder="e.g. House deposit")
+            goal_target = st.number_input("Target (EUR)", min_value=0.0, step=5000.0)
+            goal_date = st.date_input("By when", value=add_months(date.today(), 24), min_value=date.today())
+            goal_monthly = st.number_input("Planned monthly contribution (EUR)", min_value=0.0, step=50.0)
+            goal_return = st.number_input("Expected return % p.a.", min_value=0.0, max_value=20.0, value=5.0, step=0.5)
+            if st.form_submit_button("Add goal", type="primary"):
+                if not goal_name.strip() or goal_target <= 0:
+                    st.error("A name and a positive target are required.")
+                else:
+                    goals_db.add_goal(
+                        LOCAL_USER_ID, goal_name, goal_target, goal_date,
+                        monthly_contribution=goal_monthly, expected_return_percent=goal_return,
+                    )
+                    st.success("Goal added.")
                     st.rerun()
 
 elif page == "Other assets":

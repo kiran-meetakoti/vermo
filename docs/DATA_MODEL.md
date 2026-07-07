@@ -117,6 +117,15 @@ Dividends, interest, rent, and other income (Postgres migration
 | `income_date` | `YYYY-MM-DD` |
 | `created_at`, `updated_at` | ISO UTC |
 
+### goals (goals_db.py)
+Named financial goals (Postgres migration `004_goals.sql`; SQLite twin in
+`goals_db.ensure_schema`). Goals are lenses on total wealth, not
+allocations. Columns: `name`, `target_eur`, `target_date`,
+`monthly_contribution` (planned), `expected_return_percent` (default 5.0),
+timestamps, `user_id` with RLS owner policy. Status math (on-track /
+required monthly) lives in `goals_db.goal_status` +
+`finance_math.required_monthly_contribution`.
+
 ### broker_imports / broker_transactions (streamlit_app.py)
 Broker CSV audit (`broker`, `filename`, `imported` count) and the raw
 transaction rows (`import_id` FK-by-convention, `trade_date`,

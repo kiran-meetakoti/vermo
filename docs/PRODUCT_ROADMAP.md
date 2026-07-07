@@ -135,8 +135,11 @@ mobile app automatically:
    (trailing-12m / this-year / monthly-average tiles, stacked monthly
    chart, per-holding trailing yield); `income_events` table (003
    migration, RLS) + tested `income_db.py` module.
-5. **Named goals** — wrap the existing `finance_math` projections in goals
-   with on-track/off-track status ("House deposit €60k by 2028").
+5. [x] **Named goals** — done 2026-07-07: Goals page with progress bars and
+   On track / Behind (+ "needs €X/mo") / Reached status; `goals` table
+   (004 migration, RLS), tested `goals_db.py` +
+   `finance_math.required_monthly_contribution` (annuity solver,
+   projection-roundtrip tested). **Tier 1 of Phase 2.5 is complete.**
 
 **Wedge differentiators (build with/into the mobile launch, P3):**
 - **FX-split performance** — "18% market, −4% rupee": separate market gain
