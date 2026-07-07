@@ -15,9 +15,11 @@ from threading import Lock
 from typing import Literal, Optional
 from uuid import uuid4
 
-from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi import Depends, FastAPI, File, Header, HTTPException, UploadFile
 from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel, Field, ValidationError
+
+from auth.local_auth import resolve_session
 
 BASE_DIR = Path(__file__).resolve().parent
 DATA_DIR = BASE_DIR / "data"
@@ -31,9 +33,10 @@ INDIA_SNAPSHOT_COLUMNS = ("Stock Name", "Company Name", "CMP", "Portfolio Holdin
 INR_PER_EUR = Decimal("97.3")
 DEFAULT_FX_RATES = {"EUR": 1.0, "INR": 97.3, "USD": 1.14, "GBP": 0.86}
 
-# Every holding/snapshot/import row belongs to a user. Until login is wired into the
-# running app, every call defaults to this single account so existing behavior is
-# unchanged; once auth/local_auth.py is wired in, pass the real session user_id instead.
+# Every holding/snapshot/import row belongs to a user. Route handlers no longer
+# trust a client-supplied user_id (see require_user_id below) — this constant now
+# only serves as the default for internal helper functions when called directly
+# (e.g. from a script or test) without going through a route.
 LOCAL_USER_ID = "702204ea-0bba-4e4d-8349-3a6d31adab42"
 INDIA_YAHOO_SYMBOLS = {
     "BAJFINEQ": "BAJFINANCE.NS", "ICIBANEQ": "ICICIBANK.NS", "HDFBANEQ": "HDFCBANK.NS",
@@ -103,6 +106,19 @@ app = FastAPI(
     description="Consolidated portfolio tracker for global investments.",
     version="0.2.0",
 )
+
+
+def require_user_id(authorization: str | None = Header(default=None)) -> str:
+    """FastAPI dependency: derive user_id from the session token Streamlit's
+    auth.local_auth issues, instead of trusting a client-supplied user_id query
+    param. Every route that reads or writes user data must depend on this."""
+    if not authorization or not authorization.lower().startswith("bearer "):
+        raise HTTPException(status_code=401, detail="Missing bearer token.")
+    token = authorization.split(" ", 1)[1].strip()
+    user = resolve_session(token)
+    if not user:
+        raise HTTPException(status_code=401, detail="Invalid or expired session.")
+    return user["id"]
 
 
 class HoldingCreate(BaseModel):
@@ -672,7 +688,7 @@ def startup() -> None:
 
 
 @app.get("/api/dashboard")
-def dashboard(user_id: str = LOCAL_USER_ID) -> dict:
+def dashboard(user_id: str = Depends(require_user_id)) -> dict:
     with connect() as connection:
         record_snapshots(connection, user_id=user_id)
         holdings = [
@@ -719,12 +735,12 @@ def dashboard(user_id: str = LOCAL_USER_ID) -> dict:
 
 
 @app.get("/api/holdings", response_model=list[Holding])
-def list_holdings(user_id: str = LOCAL_USER_ID) -> list[Holding]:
+def list_holdings(user_id: str = Depends(require_user_id)) -> list[Holding]:
     return load_holdings(user_id)
 
 
 @app.get("/api/imports")
-def list_imports(user_id: str = LOCAL_USER_ID) -> list[dict]:
+def list_imports(user_id: str = Depends(require_user_id)) -> list[dict]:
     with connect() as connection:
         return [
             dict(row) for row in connection.execute(
@@ -734,7 +750,7 @@ def list_imports(user_id: str = LOCAL_USER_ID) -> list[dict]:
 
 
 @app.get("/api/snapshots")
-def snapshots(user_id: str = LOCAL_USER_ID) -> list[dict]:
+def snapshots(user_id: str = Depends(require_user_id)) -> list[dict]:
     return list_snapshots(user_id)
 
 
@@ -768,7 +784,7 @@ def yahoo_symbol(holding: Holding) -> Optional[str]:
 
 
 @app.post("/api/prices/refresh")
-def refresh_prices(user_id: str = LOCAL_USER_ID) -> dict:
+def refresh_prices(user_id: str = Depends(require_user_id)) -> dict:
     details = []
     refreshed = 0
     skipped = 0
@@ -861,7 +877,7 @@ def refresh_prices(user_id: str = LOCAL_USER_ID) -> dict:
 
 
 @app.post("/api/holdings", response_model=Holding, status_code=201)
-def add_holding(payload: HoldingCreate, user_id: str = LOCAL_USER_ID) -> Holding:
+def add_holding(payload: HoldingCreate, user_id: str = Depends(require_user_id)) -> Holding:
     with data_lock, connect() as connection:
         upsert_holding(connection, payload, user_id=user_id)
         record_snapshots(connection, user_id=user_id)
@@ -873,7 +889,7 @@ def add_holding(payload: HoldingCreate, user_id: str = LOCAL_USER_ID) -> Holding
 
 
 @app.post("/api/holdings/import")
-async def import_holdings(file: UploadFile = File(...), user_id: str = LOCAL_USER_ID) -> dict:
+async def import_holdings(file: UploadFile = File(...), user_id: str = Depends(require_user_id)) -> dict:
     if not file.filename or not file.filename.lower().endswith(".csv"):
         raise HTTPException(status_code=400, detail="Please upload a CSV file.")
     try:
@@ -908,7 +924,7 @@ async def import_holdings(file: UploadFile = File(...), user_id: str = LOCAL_USE
 
 
 @app.delete("/api/holdings/{holding_id}", status_code=204, response_class=Response)
-def delete_holding(holding_id: str, user_id: str = LOCAL_USER_ID) -> Response:
+def delete_holding(holding_id: str, user_id: str = Depends(require_user_id)) -> Response:
     with data_lock, connect() as connection:
         result = connection.execute(
             "DELETE FROM holdings WHERE id = ? AND user_id = ?", (holding_id, user_id)

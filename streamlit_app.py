@@ -9,10 +9,12 @@ from datetime import date, datetime, timezone
 from pathlib import Path
 from uuid import uuid4
 
+import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 from pypdf import PdfReader
 
+import budget_db
 from auth.local_auth import current_user, logout, require_login
 
 
@@ -720,17 +722,13 @@ def budget_expenses(order_by_date: bool = False) -> list[dict]:
 def add_budget_expense(
     name: str, category: str, amount_eur: float, expense_date: date | None = None, is_recurring: bool = False
 ) -> None:
-    now = utc_now()
-    with connect() as connection:
-        connection.execute(
-            "INSERT INTO budget_expenses "
-            "(id, user_id, name, category, amount_eur, expense_date, created_at, updated_at, is_recurring) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (
-                str(uuid4()), LOCAL_USER_ID, name, category, amount_eur,
-                (expense_date or date.today()).isoformat(), now, now, int(is_recurring),
-            ),
-        )
+    budget_db.add_expense(LOCAL_USER_ID, name, category, amount_eur, expense_date, is_recurring)
+
+
+def expense_exists(name: str, amount_eur: float, expense_date_iso: str) -> bool:
+    """Skip-duplicate guard for (re)imports. Delegates to budget_db so the logic
+    is unit-tested there. See budget_db.expense_exists for the matching rules."""
+    return budget_db.expense_exists(LOCAL_USER_ID, name, amount_eur, expense_date_iso)
 
 
 def delete_budget_expense(expense_id: str) -> None:
@@ -1199,10 +1197,16 @@ if st.sidebar.button("⟳ Refresh prices", use_container_width=True):
     with st.spinner("Fetching live quotes…"):
         try:
             import urllib.request as _ureq, json as _json
+            # FastAPI derives the user from this session token (see main.py's
+            # require_user_id) rather than trusting a client-supplied user_id —
+            # a raw user_id in the URL used to be enough to act as anyone.
             _req = _ureq.Request(
-                f"http://127.0.0.1:8000/api/prices/refresh?user_id={_ureq.quote(LOCAL_USER_ID)}",
+                "http://127.0.0.1:8000/api/prices/refresh",
                 method="POST",
-                headers={"Content-Type": "application/json"},
+                headers={
+                    "Content-Type": "application/json",
+                    "Authorization": f"Bearer {st.session_state.get('session_token', '')}",
+                },
             )
             with _ureq.urlopen(_req, timeout=60) as _r:
                 _run = _json.load(_r)
@@ -1886,7 +1890,6 @@ elif page == "Holdings":
         if not editable:
             st.info("No editable holdings in the current filter (only holdings with a tracked quantity can be edited).")
         else:
-            import pandas as pd
             df = pd.DataFrame([
                 {
                     "id": r["id"],
@@ -2050,26 +2053,34 @@ elif page == "Other assets":
                     f"<span class='fd-tag {g_cls}' style='margin-left:8px'>"
                     f"{sign}{money(gain_eur, currency, rates)} ({sign}{gain_pct:.1f}%)</span>"
                 )
+            cost_html = (
+                f"<span>Cost: <strong style='color:var(--atlas-ink)'>{money(cost_eur, currency, rates)}</strong></span>"
+                if cost_eur else ""
+            )
+            notes_html = f"<span style='font-style:italic'>{asset['notes']}</span>" if asset.get("notes") else ""
             with st.container():
                 row_l, row_r = st.columns([4, 1])
                 with row_l:
+                    # Built as one unbroken line, not a multi-line indented f-string: when the
+                    # optional cost/notes spans are empty, the deep Python-source indentation
+                    # they'd otherwise leave behind creates a blank line followed by 4+ spaces —
+                    # which Markdown reads as the start of an indented code block, so the next
+                    # span (the date) rendered as literal escaped text instead of HTML.
                     st.markdown(
-                        f"""
-                        <div style='background:var(--atlas-panel);border:1px solid var(--atlas-line);
-                             border-left:3px solid {color};border-radius:10px;padding:14px 18px;margin-bottom:8px'>
-                          <div style='display:flex;align-items:center;gap:10px;margin-bottom:4px'>
-                            <strong style='color:var(--atlas-ink);font-size:14px'>{asset['name']}</strong>
-                            <span class='fd-tag'>{asset['category']}</span>
-                            {gain_html}
-                          </div>
-                          <div style='display:flex;gap:24px;font-size:13px;color:var(--atlas-muted)'>
-                            <span>Value: <strong style='color:var(--atlas-ink)'>{money(val_eur, currency, rates)}</strong></span>
-                            {f"<span>Cost: <strong style='color:var(--atlas-ink)'>{money(cost_eur, currency, rates)}</strong></span>" if cost_eur else ""}
-                            {f"<span style='font-style:italic'>{asset['notes']}</span>" if asset.get('notes') else ""}
-                            <span>Updated: {asset['updated_at'][:10]}</span>
-                          </div>
-                        </div>
-                        """,
+                        f"<div style='background:var(--atlas-panel);border:1px solid var(--atlas-line);"
+                        f"border-left:3px solid {color};border-radius:10px;padding:14px 18px;margin-bottom:8px'>"
+                        f"<div style='display:flex;align-items:center;gap:10px;margin-bottom:4px'>"
+                        f"<strong style='color:var(--atlas-ink);font-size:14px'>{asset['name']}</strong>"
+                        f"<span class='fd-tag'>{asset['category']}</span>"
+                        f"{gain_html}"
+                        f"</div>"
+                        f"<div style='display:flex;gap:24px;font-size:13px;color:var(--atlas-muted)'>"
+                        f"<span>Value: <strong style='color:var(--atlas-ink)'>{money(val_eur, currency, rates)}</strong></span>"
+                        f"{cost_html}"
+                        f"{notes_html}"
+                        f"<span>Updated: {asset['updated_at'][:10]}</span>"
+                        f"</div>"
+                        f"</div>",
                         unsafe_allow_html=True,
                     )
                 with row_r:
@@ -2301,8 +2312,6 @@ elif page == "Debt tracker":
     )
 
 elif page == "Budget tracker":
-    import pandas as pd
-
     salary = monthly_salary()
     all_expenses = budget_expenses()
 
@@ -2409,8 +2418,6 @@ elif page == "Budget tracker":
                     "scanned/image-only PDFs, or tables split across columns) won't extract cleanly."
                 )
             else:
-                import pandas as pd
-
                 st.success(f"Found {len(extracted)} possible expenses. Review and edit below before importing.")
                 preview_df = pd.DataFrame([
                     {
@@ -2437,10 +2444,25 @@ elif page == "Budget tracker":
                 included = edited_df[edited_df["Include"]]
                 st.caption(f"{len(included)} of {len(edited_df)} selected · total {money(included['Amount (EUR)'].sum(), currency, rates)}")
                 if st.button(f"Import {len(included)} expenses", type="primary", disabled=included.empty):
+                    imported = skipped = 0
                     for _, row in included.iterrows():
-                        add_budget_expense(row["Description"], row["Category"], float(row["Amount (EUR)"]), row["Date"])
+                        raw_date = row["Date"]
+                        expense_date = date.today() if pd.isna(raw_date) else pd.Timestamp(raw_date).date()
+                        name = str(row["Description"])
+                        amount = float(row["Amount (EUR)"])
+                        # Skip rows already present so re-importing the same (or an
+                        # overlapping) statement doesn't double-book — the root cause
+                        # of the earlier duplicate-transaction cleanups.
+                        if expense_exists(name, amount, expense_date.isoformat()):
+                            skipped += 1
+                            continue
+                        add_budget_expense(name, row["Category"], amount, expense_date)
+                        imported += 1
                     st.session_state.pop(cache_key, None)
-                    st.success(f"Imported {len(included)} expenses.")
+                    if skipped:
+                        st.success(f"Imported {imported} · skipped {skipped} duplicate{'s' if skipped != 1 else ''}.")
+                    else:
+                        st.success(f"Imported {imported} expenses.")
                     st.rerun()
 
     st.markdown("<div class='fd-section-title'>Add / update</div>", unsafe_allow_html=True)
@@ -2586,8 +2608,6 @@ elif page == "Budget tracker":
     # ── Spending trends: daily / weekly / monthly / yearly analytics ───────
     st.markdown("<div class='fd-section-title'>Spending trends</div>", unsafe_allow_html=True)
     if expenses:
-        import pandas as pd
-
         trend_col1, trend_col2 = st.columns([1, 3])
         granularity = trend_col1.selectbox("View by", ["Daily", "Weekly", "Monthly", "Yearly"], index=2)
         group_by_category = trend_col1.checkbox("Split by category", value=False)

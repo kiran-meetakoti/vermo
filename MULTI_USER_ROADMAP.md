@@ -10,43 +10,112 @@ people can sign up for and use to track their own portfolios.
       `broker_transactions`, `manual_assets`) has a `user_id` column and
       correct composite uniqueness constraints.
 - [x] Every query in `main.py` and `streamlit_app.py` is scoped by `user_id`.
-- [x] `auth/local_auth.py` exists — email/password signup+login against a
-      local `data/auth.db`, session-based — but is **not wired into the
-      running app**. Everything still defaults to a fixed
-      `LOCAL_USER_ID = "local-user"`.
 - [x] Migration is non-destructive and was run against the live DB; all
       existing data preserved under `local-user`.
+- [x] **Stage 1 is done** (this section used to say auth wasn't wired in —
+      it now is). `streamlit_app.py` calls `require_login()` at the top and
+      reassigns `LOCAL_USER_ID` to the real session user for the rest of the
+      script run; there's a working login/signup/logout flow, a
+      no-email password-reset flow (`auth/local_auth.py::reset_password`),
+      and it's been hand-verified that two different logged-in accounts see
+      completely separate data.
+- [x] `auth/local_auth.py` has unit tests (`tests/test_auth.py`, 11 tests)
+      covering register/login/reset/session-invalidation.
+- [x] `budget_db.py` (the expense dedup + insert logic) has unit tests
+      (`tests/test_budget.py`, 8 tests), including a regression test for the
+      duplicate-import bug that caused two rounds of manual data cleanup.
+- [x] Real git history exists (`data/` is gitignored — DBs, backups, and
+      uploaded bank statements never get committed).
 
-Not done yet: a real login screen, a real database for concurrent users, and
-hosting anyone but you can reach.
+**Not done yet, and more urgent than Stage 2 below:**
+- [x] ~~**FastAPI has no authentication.**~~ Fixed: every data route in
+  `main.py` now takes `user_id` from `Depends(require_user_id)`, which
+  resolves the `Authorization: Bearer <session-token>` header against
+  `auth.db` via `auth.local_auth.resolve_session()` and 401s otherwise.
+  Client-supplied `user_id` params are ignored. Covered by
+  `tests/test_api.py` (missing/garbage/expired tokens, cross-user
+  read/delete isolation, query-param spoofing).
+- The bulk of `streamlit_app.py` (2,700+ lines: PDF statement parsing,
+  auto-categorization, recurring-expense generation, FX/debt/portfolio math,
+  all page rendering) has **zero test coverage**. The PDF parser and
+  recurring-expense logic are the highest-risk pieces to carry into a
+  Postgres migration untested, since a silent parsing bug there is exactly
+  what caused this week's duplicate-transaction incidents.
+- A real database for concurrent users, and hosting anyone but you can
+  reach.
 
 ---
 
-## Stage 1 — Wire local auth into the running app
+## Stage 1 — Wire local auth into the running app ✅ DONE
 
 Goal: prove multi-tenancy works end to end, still on your laptop, still on
 SQLite. No new infra.
 
-1. **Streamlit**: call `auth.local_auth.require_login()` at the top of
-   `streamlit_app.py`, before any DB reads. It blocks with a login/signup
-   form until `current_user()` returns a real user.
-2. Replace every `LOCAL_USER_ID` reference in `streamlit_app.py` with
-   `current_user()["id"]`.
-3. **FastAPI**: the Streamlit "Refresh prices" button calls
-   `POST /api/prices/refresh` over HTTP. It needs to tell FastAPI *which*
-   user it's acting for — add an `X-User-Id` header to that call, and have
-   FastAPI read it (falling back to `LOCAL_USER_ID` only if absent, so the
-   API still works standalone during testing).
-4. Add a logout button to the sidebar (`auth.local_auth.logout()` +
-   `st.rerun()`).
-5. **Test**: create two accounts locally, add different holdings to each,
-   confirm neither sees the other's data, confirm price refresh doesn't
-   mix them up.
-6. **Known gap to accept for now**: price refresh calls Yahoo Finance
-   per-user. If two users hold NVDA, you fetch the NVDA quote twice. Fine
-   at small scale; revisit in Stage 4.
+1. [x] **Streamlit**: `require_login()` is called at the top of
+   `streamlit_app.py`, before any DB reads. Blocks with a login/signup form
+   until `current_user()` returns a real user.
+2. [x] `LOCAL_USER_ID` is reassigned to `_session_user["id"]` once, right
+   after login — every function that reads it as a module global picks up
+   the real user for the rest of the script run. (Functionally the same
+   outcome as "replace every reference," done via one reassignment instead
+   of touching every call site.)
+3. [~] **FastAPI**: the price-refresh call passes `?user_id=...` as a query
+   param rather than the `X-User-Id` header originally planned — works, but
+   see the "known gap" below, this is the part that still needs hardening.
+4. [x] Logout button in the sidebar (`auth.local_auth.logout()` + `st.rerun()`).
+5. [x] **Tested**: two accounts (a real account + a disposable "test"
+   account) were logged into during this week's work and confirmed to see
+   completely separate holdings/budget data.
+6. **Known gap, now more urgent than originally scoped**: it's not just
+   that price-refresh could double-fetch a shared ticker (the original
+   note) — it's that **`main.py` never verifies the `user_id` it's given**.
+   Any of its endpoints will return or mutate any user's data for whoever
+   asks. Treat this as a blocking prerequisite for Stage 3, not a Stage 4
+   nice-to-have — see the new step below.
 
 Effort: small. Risk: low — it's additive, nothing about the schema changes.
+
+---
+
+## Stage 1.5 — Close the gaps before touching Postgres
+
+Goal: don't carry known security and coverage gaps into a bigger migration.
+Do this now, while everything is still SQLite and low-stakes to fix.
+
+1. [x] **Authenticate FastAPI requests.** — done as described below
+   (`require_user_id` in `main.py`, Streamlit sends the Bearer token on
+   price refresh). `auth/local_auth.py` already issues a
+   session token (`st.session_state["session_token"]`, also mirrored into
+   `st.query_params["session"]`). Have Streamlit send that token to FastAPI
+   (header, e.g. `Authorization: Bearer <token>`) instead of a raw
+   `user_id`. Add a small dependency in `main.py` that looks the token up
+   against `data/auth.db` (same `_resolve_session` logic `local_auth.py`
+   already has — may be worth moving session lookup into a shared module
+   both `main.py` and `streamlit_app.py` import) and derives `user_id` from
+   *that*, ignoring any `user_id` the client claims. Reject with 401 if the
+   token doesn't resolve.
+2. **Backfill tests for the highest-risk untested logic** before it gets
+   copied into a Postgres migration script:
+   - PDF statement parsing (`_parse_statement_date`, `_parse_statement_amount`,
+     `_extract_statement_blocks`, `extract_pdf_transactions`) — pure
+     functions, easy to test against fixture statement text, and the exact
+     kind of silent bug that caused this week's duplicate-transaction
+     incidents.
+   - `ensure_recurring_expenses` — month-rollover and idempotency are easy
+     to get subtly wrong and hard to notice until rent/loan entries are
+     missing or doubled for some month.
+   - [x] `main.py`'s FastAPI endpoints, via `TestClient` —
+     `tests/test_api.py` now covers the auth dependency: 401 on
+     missing/garbage/non-Bearer/expired tokens, identity derived from the
+     token (not the client), and cross-user read/delete isolation.
+3. [x] **Test**: same two-account isolation check as Stage 1, but this time
+   also confirm that calling a FastAPI endpoint with someone *else's*
+   `user_id` and your own session token gets rejected, not honored.
+   (`tests/test_api.py::test_user_id_query_param_is_ignored`.)
+
+Effort: small-medium. Risk of skipping this: the auth gap is a real data
+leak once hosted; the untested parsing logic is exactly what already broke
+twice this week.
 
 ---
 
@@ -118,8 +187,13 @@ Do this before telling people it's available, not after.
 - **Rate limiting / abuse protection** on signup and API endpoints.
 - **Terms of service + privacy policy** — required once you're holding
   other people's financial data, even informally.
-- **Password reset flow** — local_auth.py doesn't have one; Supabase Auth
-  does, for free, once Stage 2 lands.
+- ~~Password reset flow~~ — done. `local_auth.py::reset_password` lets a
+  user reset by email + new password directly, no email round-trip (there's
+  no email service configured). This is fine for a local/small-trust-circle
+  product; it's the kind of thing worth swapping for Supabase Auth's real
+  reset-by-email flow once Stage 2 lands, since at that point "anyone who
+  knows your email can reset your password" stops being an acceptable
+  trade-off for a hosted product with strangers on it.
 
 ---
 
@@ -140,8 +214,11 @@ Effort: large. Don't start here — validate first.
 
 ## Suggested order of attack
 
-1. Stage 1 now — cheap, proves the concept, no new accounts/infra needed.
-2. Pause and use it yourself (or with 1-2 friends) for a bit.
+1. ~~Stage 1~~ — done, and already load-bearing: you've been using it
+   yourself this week (that's how this week's real data and bugs surfaced).
+2. **Stage 1.5 now** — close the FastAPI auth gap and backfill tests on the
+   PDF-parsing/recurring-expense logic, while it's still cheap to fix on
+   SQLite and before either gets carried into a Postgres migration.
 3. Stage 2 + 3 together once you're confident it's worth the Postgres/
    hosting migration.
 4. Stage 4 before sharing the URL with anyone outside a trusted circle.

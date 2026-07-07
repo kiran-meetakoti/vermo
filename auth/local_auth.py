@@ -118,8 +118,12 @@ def _delete_session(token: str) -> None:
         conn.execute("DELETE FROM sessions WHERE token = ?", (token,))
 
 
-def _resolve_session(token: str) -> dict | None:
-    """Look up a session token, expiring it if it's past INACTIVITY_TIMEOUT."""
+def resolve_session(token: str) -> dict | None:
+    """Look up a session token, expiring it if it's past INACTIVITY_TIMEOUT.
+
+    Pure DB lookup, no Streamlit dependency — also used by main.py (FastAPI)
+    to authenticate API requests via the same session token Streamlit issues,
+    instead of trusting a client-supplied user_id."""
     with _connect() as conn:
         session_row = conn.execute("SELECT * FROM sessions WHERE token = ?", (token,)).fetchone()
         if not session_row:
@@ -208,7 +212,7 @@ def current_user() -> dict | None:
     token = st.query_params.get("session")
     if not token:
         return None
-    user = _resolve_session(token)
+    user = resolve_session(token)
     if not user:
         st.query_params.pop("session", None)
         return None
