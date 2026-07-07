@@ -169,8 +169,22 @@ managed auth provider instead of the homegrown password table.
 5. Config via environment variables: `DATABASE_URL`, `SUPABASE_URL`,
    `SUPABASE_ANON_KEY`, `VERMO_BACKEND` — `.env` locally (already
    gitignored, see `.env.example`), real secrets set on the host in Stage 3.
-6. **Test**: same two-account isolation test as Stage 1, now against
-   Postgres.
+6. [x] **Test**: two-account isolation verified against Postgres+Supabase
+   Auth on 2026-07-07: a throwaway account logged in via GoTrue saw zero
+   holdings, a spoofed `user_id` query param returned nothing, 401s on
+   missing/garbage tokens, and the real account's dashboard rendered from
+   Postgres matching SQLite to the cent (verified in the running Streamlit
+   UI). Auth swap details: `auth/supabase_auth.py` (GoTrue REST — password
+   grant, rotating refresh tokens, `/user` validation for FastAPI); the
+   login page is shared via `auth/login_ui.py`; `local_auth` remains the
+   SQLite/dev/test path. **Stage 2 is complete — the app runs on Supabase
+   when VERMO_BACKEND=postgres (set in .env).**
+
+   Notes for Stage 3/4 discovered during the swap: Supabase's built-in
+   email service is heavily rate-limited (a couple of confirmation emails
+   per hour) and rejects some domains — configure custom SMTP before real
+   signups; in-app password reset is unavailable in Supabase mode until a
+   proper recovery page exists (Stage 5 frontend).
 
 Effort: medium — this is the biggest single chunk of work, mostly
 mechanical query-syntax changes plus the RLS policies.

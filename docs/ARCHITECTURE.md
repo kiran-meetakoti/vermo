@@ -62,7 +62,9 @@ would flip this: the API becomes the only data path.
 |---|---|---|
 | `streamlit_app.py` | ~2,700 | Primary UI. Login gate, DB init/migrations for budget/broker/manual-asset tables, PDF statement parsing, auto-categorization, recurring expenses, FX/debt/projection math, and all seven pages. |
 | `main.py` | ~950 | FastAPI service. Portfolio schema init/migrations, CSV import parsers (template, transaction-history, India broker snapshot), price refresh, classification (asset category / cap bucket / barbell role), REST endpoints, serves the legacy dashboard. |
-| `auth/local_auth.py` | ~480 | Local email+password auth. PBKDF2-SHA256 hashing, session tokens in `auth.db`, 7-day inactivity timeout. `resolve_session()` is Streamlit-free so FastAPI can import it. Streamlit-facing helpers: `require_login()`, `current_user()`, `logout()`. |
+| `auth/local_auth.py` | ~240 | Local email+password auth (SQLite mode / dev / tests). PBKDF2-SHA256 hashing, session tokens in `auth.db`, 7-day inactivity timeout. `resolve_session()` is Streamlit-free so FastAPI can import it. |
+| `auth/supabase_auth.py` | ~190 | Supabase Auth (GoTrue REST) — the production auth on Postgres. Same public surface as `local_auth`: `register/login/logout`, `current_user`/`require_login`, `resolve_session` for FastAPI. JWT access + rotating refresh tokens. |
+| `auth/login_ui.py` | ~280 | The shared branded login/signup page; both auth backends pass their credential callables into `render_login_page()`. |
 | `budget_db.py` | ~100 | Extracted budget-expense data layer (`add_expense`, `expense_exists` duplicate guard). Exists so this logic is importable and unit-testable — `streamlit_app.py` executes login/rendering at import time and cannot be imported by tests. **This is the pattern to follow when extracting more logic** (see DEVELOPMENT.md). |
 | `statement_parser.py` | ~220 | Extracted bank/credit-card statement PDF parser (N26-style multi-line blocks + single-line fallback, date/amount parsing, keyword auto-categorization). Streamlit-free for the same testability reason. |
 | `finance_math.py` | ~125 | Extracted pure financial math: portfolio growth projections, debt payoff schedules, annuity interest-rate inference, month arithmetic. Date-dependent functions take an optional `today` so tests can pin the current date. |
@@ -72,6 +74,19 @@ would flip this: the API becomes the only data path.
 | `tests/` | — | Pytest suite: auth (`test_auth.py`), budget dedup (`test_budget.py`), API auth (`test_api.py`). |
 
 ## Authentication flow
+
+**The auth backend follows the data backend** (they share user ids, so they
+must switch together): with `VERMO_BACKEND=postgres`, `auth/supabase_auth.py`
+authenticates against Supabase Auth (GoTrue REST, no SDK) — password login
+returns a short-lived JWT access token plus a rotating refresh token; the
+refresh token is mirrored into `st.query_params` so browser reloads restore
+the session; FastAPI's `require_user_id` validates the access token via
+GoTrue `/user`. On SQLite, `auth/local_auth.py` (below) still applies —
+it remains the dev/test path. Both render the same login page from
+`auth/login_ui.py`. In-app password reset exists only in local mode;
+Supabase email recovery needs a real frontend page (Stage 5).
+
+### Local (SQLite) auth flow
 
 1. `streamlit_app.py` calls `require_login()` before any DB read. Unauthenticated
    users see a login/signup form and the script stops there.

@@ -111,12 +111,18 @@ app = FastAPI(
 
 def require_user_id(authorization: str | None = Header(default=None)) -> str:
     """FastAPI dependency: derive user_id from the session token Streamlit's
-    auth.local_auth issues, instead of trusting a client-supplied user_id query
-    param. Every route that reads or writes user data must depend on this."""
+    auth backend issues, instead of trusting a client-supplied user_id query
+    param. Every route that reads or writes user data must depend on this.
+    The token type follows the backend: a Supabase Auth access token on
+    Postgres, a local_auth session token on SQLite."""
     if not authorization or not authorization.lower().startswith("bearer "):
         raise HTTPException(status_code=401, detail="Missing bearer token.")
     token = authorization.split(" ", 1)[1].strip()
-    user = resolve_session(token)
+    if db.is_postgres():
+        from auth.supabase_auth import resolve_session as resolve
+    else:
+        resolve = resolve_session
+    user = resolve(token)
     if not user:
         raise HTTPException(status_code=401, detail="Invalid or expired session.")
     return user["id"]

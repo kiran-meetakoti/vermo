@@ -23,7 +23,13 @@ from finance_math import (
     portfolio_projection,
 )
 from statement_parser import extract_pdf_transactions
-from auth.local_auth import current_user, logout, require_login
+# Auth backend follows the data backend: Supabase Auth owns the user ids that
+# Postgres rows reference (and that RLS checks); local_auth owns the SQLite-era
+# ids. Mixing them would query one backend's data with the other's ids.
+if db.is_postgres():
+    from auth.supabase_auth import current_user, logout, require_login
+else:
+    from auth.local_auth import current_user, logout, require_login
 
 
 BASE_DIR = Path(__file__).resolve().parent
