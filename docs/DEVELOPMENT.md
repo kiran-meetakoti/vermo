@@ -63,11 +63,11 @@ its own module. `budget_db.py` is the template:
 2. Have `streamlit_app.py` delegate to it (thin wrappers are fine).
 3. Test the module against a temp DB (see `tests/test_budget.py`).
 
-Highest-value extraction candidates still inside `streamlit_app.py` (roadmap
-Stage 1.5): PDF statement parsing (`_parse_statement_date`,
-`_parse_statement_amount`, `_extract_statement_blocks`,
-`extract_pdf_transactions`, `auto_categorize_expense`),
-`ensure_recurring_expenses`, and the projection/debt math.
+Done so far: `budget_db.py` (expense insert + dedup guard) and
+`statement_parser.py` (PDF statement parsing — see
+`tests/test_statement_parser.py`). Highest-value extraction candidates still
+inside `streamlit_app.py` (roadmap Stage 1.5):
+`ensure_recurring_expenses` and the projection/debt math.
 
 ## Conventions
 

@@ -96,11 +96,12 @@ Do this now, while everything is still SQLite and low-stakes to fix.
    token doesn't resolve.
 2. **Backfill tests for the highest-risk untested logic** before it gets
    copied into a Postgres migration script:
-   - PDF statement parsing (`_parse_statement_date`, `_parse_statement_amount`,
-     `_extract_statement_blocks`, `extract_pdf_transactions`) — pure
-     functions, easy to test against fixture statement text, and the exact
-     kind of silent bug that caused this week's duplicate-transaction
-     incidents.
+   - [x] PDF statement parsing — extracted into `statement_parser.py`
+     (Streamlit-free, importable) and covered by
+     `tests/test_statement_parser.py`: date/amount format variants,
+     auto-categorization, N26 block extraction (income skipped, FX lines
+     stripped, N26 category labels honored), page-boilerplate stripping,
+     and the single-line fallback format.
    - `ensure_recurring_expenses` — month-rollover and idempotency are easy
      to get subtly wrong and hard to notice until rent/loan entries are
      missing or doubled for some month.
