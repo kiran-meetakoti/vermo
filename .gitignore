@@ -11,3 +11,7 @@ data/
 
 # Personal Claude Code overrides (permission allowlists etc.) — not shared.
 .claude/settings.local.json
+
+# mobile/.env holds ONLY publishable client values (Supabase URL + anon key)
+# that ship inside the app bundle by design — safe and needed for builds.
+!mobile/.env
