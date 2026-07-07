@@ -26,6 +26,7 @@ from __future__ import annotations
 import os
 import re
 import sqlite3
+import threading
 from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -52,10 +53,24 @@ def is_postgres() -> bool:
 
 class _PgConnection:
     """Thin psycopg wrapper so sqlite3-style call sites work unchanged:
-    qmark placeholders, connection.execute(), commit-on-with-exit."""
+    qmark placeholders, connection.execute(), commit-on-with-exit.
 
-    def __init__(self, conn):
-        self._conn = conn
+    Connections come from a process-wide pool and go back to it on
+    close()/__exit__ instead of being torn down. This matters enormously
+    for hosted deployments: a fresh TLS connection to the Supabase pooler
+    costs several network round trips (~600 ms from the same continent,
+    worse cross-Atlantic), and Streamlit reruns issue many queries per
+    interaction — measured 612 → 60 ms per query when pooled."""
+
+    def __init__(self, pool):
+        self._pool = pool
+        self._conn = pool.getconn()
+        self._returned = False
+
+    def _return_to_pool(self) -> None:
+        if not self._returned:
+            self._returned = True
+            self._pool.putconn(self._conn)
 
     # sqlite3 named style ":param" → psycopg "%(param)s". The lookbehind keeps
     # Postgres "::type" casts and drive-letter-like tokens out of the match.
@@ -86,30 +101,77 @@ class _PgConnection:
         self._conn.commit()
 
     def close(self) -> None:
-        self._conn.close()
+        # Roll back anything uncommitted, then hand the connection back to
+        # the pool (mirrors sqlite3, where close() discards open work).
+        import psycopg
+
+        if self._conn.info.transaction_status != psycopg.pq.TransactionStatus.IDLE:
+            self._conn.rollback()
+        self._return_to_pool()
 
     def __enter__(self):
         return self
 
     def __exit__(self, exc_type, exc, tb):
-        # psycopg's own context manager: commit on success, rollback on error,
-        # then close. sqlite3's leaves the connection open, but every caller
-        # opens a fresh connection per operation, so closing is safe.
-        return self._conn.__exit__(exc_type, exc, tb)
+        # Same contract callers relied on: commit on success, rollback on
+        # error. The connection then returns to the pool instead of closing.
+        try:
+            if exc_type is None:
+                self._conn.commit()
+            else:
+                self._conn.rollback()
+        finally:
+            self._return_to_pool()
+        return False
 
 
-def _pg_connect():
-    import psycopg
-    from psycopg.rows import dict_row
+_pg_pool = None
+_pg_pool_lock = threading.Lock()
+
+
+def _configure_pg(conn) -> None:
+    """Run once per pooled connection: return SQLite-shaped Python types
+    (see module docstring)."""
     from psycopg.types.numeric import FloatLoader
     from psycopg.types.string import TextLoader
 
-    conn = psycopg.connect(_env("DATABASE_URL"), row_factory=dict_row, connect_timeout=15)
-    # Return SQLite-shaped Python types (see module docstring).
     for typename in ("timestamptz", "timestamp", "date", "uuid", "jsonb"):
         conn.adapters.register_loader(typename, TextLoader)
     conn.adapters.register_loader("numeric", FloatLoader)
-    return _PgConnection(conn)
+
+
+def _get_pool():
+    global _pg_pool
+    if _pg_pool is None:
+        with _pg_pool_lock:
+            if _pg_pool is None:
+                from psycopg.rows import dict_row
+                from psycopg_pool import ConnectionPool
+
+                _pg_pool = ConnectionPool(
+                    _env("DATABASE_URL"),
+                    min_size=0,
+                    max_size=4,
+                    # Close pooled connections idle beyond this before the
+                    # Supabase pooler / NAT kills them under us.
+                    max_idle=300,
+                    timeout=15,
+                    kwargs={
+                        "row_factory": dict_row,
+                        "connect_timeout": 15,
+                        # TCP keepalives so long-lived pooled connections
+                        # survive NAT/proxy idle timeouts.
+                        "keepalives": 1,
+                        "keepalives_idle": 30,
+                        "keepalives_interval": 10,
+                    },
+                    configure=_configure_pg,
+                )
+    return _pg_pool
+
+
+def _pg_connect():
+    return _PgConnection(_get_pool())
 
 
 def connect(sqlite_file: Path | str | None = None):
