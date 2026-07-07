@@ -73,6 +73,7 @@ would flip this: the API becomes the only data path.
 | `db.py` | ~130 | Backend-agnostic connections: Supabase Postgres when `VERMO_BACKEND=postgres` (explicit opt-in), SQLite otherwise; an explicit file path always forces SQLite (tests). Translates sqlite3 qmark/named placeholders to psycopg style and registers loaders so Postgres returns SQLite-shaped Python types. Postgres schema is managed by `migrations/postgres/*.sql`, never by app code. |
 | `index.html`, `app.js`, `styles.css` | ~600 | Legacy vanilla-JS dashboard served by FastAPI at `/`. Portfolio-only; predates the Streamlit UI. |
 | `run_streamlit.py` | 46 | Streamlit launcher with a Python 3.9 Protocol-dataclass workaround. |
+| `mobile/` | — | Expo/React Native app (iOS + Android + web), Phase 3. Talks to Supabase directly (supabase-js auth + RLS-protected reads); see `mobile/README.md`. |
 | `tests/` | — | Pytest suite: auth (`test_auth.py`), budget dedup (`test_budget.py`), API auth (`test_api.py`). |
 
 ## Authentication flow

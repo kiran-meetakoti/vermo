@@ -5,13 +5,29 @@
       "name": "vermo-streamlit-preview",
       "runtimeExecutable": "uv",
       "runtimeArgs": [
-        "run", "streamlit", "run", "streamlit_app.py",
-        "--server.address", "127.0.0.1",
-        "--server.port", "8510",
-        "--server.headless", "true",
-        "--browser.gatherUsageStats", "false"
+        "run",
+        "streamlit",
+        "run",
+        "streamlit_app.py",
+        "--server.address",
+        "127.0.0.1",
+        "--server.port",
+        "8510",
+        "--server.headless",
+        "true",
+        "--browser.gatherUsageStats",
+        "false"
       ],
       "port": 8510
+    },
+    {
+      "name": "vermo-mobile-web",
+      "runtimeExecutable": "bash",
+      "runtimeArgs": [
+        "-c",
+        "cd mobile && PATH=$HOME/.local/share/fnm/node-versions/v24.18.0/installation/bin:$PATH npx expo start --web --port 8081"
+      ],
+      "port": 8081
     }
   ]
 }

@@ -159,10 +159,12 @@ budget pace), household read-only sharing.
 
 Expo/React Native, TypeScript, one repo (`vermo-mobile` or monorepo folder).
 
-1. **Weeks 1–2, walking skeleton:** Expo app with Supabase auth (sign in/up,
-   secure token storage, biometric unlock via FaceID/TouchID), tab
-   navigation, Overview screen showing real portfolio data from the API.
-   Runs on both platforms via Expo Go from day one.
+1. [~] **Weeks 1–2, walking skeleton:** STARTED 2026-07-07 — `mobile/` (Expo
+   SDK 57 + expo-router + TypeScript): Supabase email/password login with
+   persisted sessions, Overview dashboard (total wealth, P/L, holdings
+   list, pull-to-refresh) reading through RLS via supabase-js. Verified
+   E2E on Expo web with a throwaway account. Still to do from this item:
+   sign-up flow, biometric unlock, tab navigation, run on Expo Go devices.
 2. **Weeks 3–5, core screens:** Holdings (list, detail, add/edit), net-worth
    chart (victory-native/skia), Other assets, Budget (expense list, add,
    monthly view), Debt tracker. Pull-to-refresh triggers price refresh.
