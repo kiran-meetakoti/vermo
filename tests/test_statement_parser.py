@@ -115,6 +115,19 @@ def test_extract_blocks_parses_expenses_and_skips_income():
     assert mystery["category"] == "Other"
 
 
+def test_card_line_without_account_prefix_still_recognized():
+    # Same block but the card line starts with "Mastercard" directly — it must
+    # still be treated as a card/category line, not leak into the description.
+    block = (
+        "REWE Markt GmbH\nMastercard • Lebensmittel\n"
+        "Wertstellung 04.05.2026\n03.05.2026 -23,45€\n"
+    )
+    rows = sp._extract_statement_blocks(block)
+    assert len(rows) == 1
+    assert rows[0]["description"] == "REWE Markt GmbH"
+    assert rows[0]["category"] == "Groceries"
+
+
 def test_boilerplate_stripping_removes_page_furniture():
     page = (
         "N26 Bank AG\nDatum Beschreibung Betrag\n"

@@ -131,7 +131,10 @@ _STATEMENT_BLOCK_TERMINATOR_RE = re.compile(
     r"Wertstellung\s+\d{1,2}[./]\d{1,2}[./]\d{2,4}\s*\n"
     r"(\d{1,2}[./]\d{1,2}[./]\d{2,4})\s+([+-]?\d[\d.,]*)\s*€"
 )
-_CARD_CATEGORY_LINE_RE = re.compile(r"^.+?\bMastercard\b(?:\s*[•·]\s*(.+))?$")
+# .*? not .+?: the card line usually carries an account-name prefix
+# ("Hauptkonto Mastercard • …") but must also be recognized when it starts
+# with "Mastercard" directly — otherwise it leaks into the description.
+_CARD_CATEGORY_LINE_RE = re.compile(r"^.*?\bMastercard\b(?:\s*[•·]\s*(.+))?$")
 
 
 def _strip_statement_page_boilerplate(page_text: str) -> str:
