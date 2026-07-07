@@ -132,7 +132,12 @@ managed auth provider instead of the homegrown password table.
    project ref `oxsfgdhrdkhpyfmgmrhe`; its MCP server is registered in
    `.mcp.json` so agent sessions can inspect/apply schema directly (requires
    a one-time interactive `claude /mcp` authentication per developer).
-2. Recreate the schema in Postgres:
+2. [x] Recreate the schema in Postgres — done 2026-07-07:
+   `migrations/postgres/001_initial_schema.sql` applied; all 10 tables live
+   with RLS enabled and owner-only policies verified against `pg_policies`,
+   plus a live check that the `authenticated` role sees 0 rows without a
+   JWT, the owner's rows with their JWT, and 0 rows with someone else's.
+   Original plan:
    - SQLite `TEXT PRIMARY KEY` → Postgres `uuid PRIMARY KEY DEFAULT gen_random_uuid()`
    - `user_id` columns become `uuid REFERENCES auth.users(id)` — Supabase
      Auth gives you a `users` table for free, so `auth/local_auth.py` gets
@@ -141,8 +146,13 @@ managed auth provider instead of the homegrown password table.
      `user_id = auth.uid()` — this makes cross-user data leaks a database-
      level guarantee, not just an application-level discipline (a real
      upgrade over today's "every query remembers to filter" approach).
-3. Write a one-time migration script: read every row out of `portfolio.db`
-   and `auth.db`, insert into Postgres under your own new Supabase user.
+3. [x] Write a one-time migration script — done and executed 2026-07-07:
+   `scripts/migrate_sqlite_to_postgres.py` moved 615 rows (65 holdings,
+   488 expenses, snapshots/settings/assets) under the real Supabase auth
+   user. Verified: EUR sums and latest snapshot match SQLite exactly;
+   re-running inserts 0 (idempotent). Old test-account rows deliberately
+   not migrated. SQLite stays untouched as the working store until step 4
+   lands.
 4. Swap `sqlite3.connect()` for `psycopg2`/`supabase-py` in both
    `main.py` and `streamlit_app.py`. The query shapes mostly carry over;
    placeholder syntax changes (`?` → `%s`), and `INSERT ... ON CONFLICT`
