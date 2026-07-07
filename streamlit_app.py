@@ -29,9 +29,9 @@ from statement_parser import extract_pdf_transactions
 # Postgres rows reference (and that RLS checks); local_auth owns the SQLite-era
 # ids. Mixing them would query one backend's data with the other's ids.
 if db.is_postgres():
-    from auth.supabase_auth import current_user, logout, require_login
+    from auth.supabase_auth import change_password, current_user, logout, require_login
 else:
-    from auth.local_auth import current_user, logout, require_login
+    from auth.local_auth import change_password, current_user, logout, require_login
 
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -825,6 +825,18 @@ st.sidebar.markdown(
 if st.sidebar.button("Log out", use_container_width=True):
     logout()
     st.rerun()
+with st.sidebar.expander("⚙︎ Account"):
+    with st.form("change_password_form", clear_on_submit=True):
+        st.caption("Change password")
+        current_pw = st.text_input("Current password", type="password")
+        new_pw = st.text_input("New password", type="password", help="At least 8 characters")
+        confirm_pw = st.text_input("Confirm new password", type="password")
+        if st.form_submit_button("Update password", use_container_width=True):
+            if new_pw != confirm_pw:
+                st.error("New passwords don't match.")
+            else:
+                ok, message = change_password(current_pw, new_pw)
+                (st.success if ok else st.error)(message)
 st.sidebar.caption("Display")
 theme_mode = st.sidebar.selectbox("Theme", ["Linear Light", "Midnight Dark"], index=0)
 currency = st.sidebar.selectbox("Base currency", ["EUR", "USD", "INR"])

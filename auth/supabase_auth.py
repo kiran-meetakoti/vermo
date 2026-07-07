@@ -122,6 +122,29 @@ def login(email: str, password: str) -> tuple[bool, str]:
     return True, "Logged in."
 
 
+def change_password(current_password: str, new_password: str) -> tuple[bool, str]:
+    """Change the signed-in user's password. Requires the current password —
+    an unlocked laptop must not be enough to take over the account."""
+    email = st.session_state.get("user_email")
+    token = st.session_state.get("session_token")
+    if not email or not token:
+        return False, "Not signed in."
+    if len(new_password) < _MIN_PASSWORD_LEN:
+        return False, f"New password must be at least {_MIN_PASSWORD_LEN} characters."
+    if new_password == current_password:
+        return False, "New password must be different from the current one."
+    # Re-authenticate before changing anything.
+    status, body = _request("/token?grant_type=password", {"email": email, "password": current_password})
+    if status != 200 or "access_token" not in body:
+        return False, "Current password is incorrect."
+    # Update via the browser's own session token — if GoTrue is configured to
+    # revoke other sessions on password change, this one must survive.
+    status, body = _request("/user", {"password": new_password}, token=token, method="PUT")
+    if status != 200:
+        return False, _error_message(status, body)
+    return True, "Password updated."
+
+
 def logout() -> None:
     token = st.session_state.get("session_token")
     if token:

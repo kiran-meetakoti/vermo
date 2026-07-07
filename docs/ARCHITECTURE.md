@@ -85,8 +85,13 @@ refresh token is mirrored into `st.query_params` so browser reloads restore
 the session; FastAPI's `require_user_id` validates the access token via
 GoTrue `/user`. On SQLite, `auth/local_auth.py` (below) still applies —
 it remains the dev/test path. Both render the same login page from
-`auth/login_ui.py`. In-app password reset exists only in local mode;
-Supabase email recovery needs a real frontend page (Stage 5).
+`auth/login_ui.py`. In-app password reset (forgotten password, unauthenticated) exists only in
+local mode; Supabase email recovery needs a real frontend page (Stage 5).
+Signed-in users can **change** their password on both backends (sidebar →
+Account): `change_password(current, new)` re-authenticates with the current
+password first, and on Supabase sends the update with the browser session's
+own token so that session survives any revoke-others server policy (local
+mode kills every other session explicitly).
 
 ### Local (SQLite) auth flow
 

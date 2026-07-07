@@ -173,6 +173,37 @@ def reset_password(email: str, new_password: str) -> tuple[bool, str]:
     return True, "Password updated. Log in with your new password."
 
 
+def change_password(current_password: str, new_password: str) -> tuple[bool, str]:
+    """Change the signed-in user's password (same surface as
+    supabase_auth.change_password). Verifies the current password, then
+    invalidates every session except the one making the change."""
+    email = st.session_state.get("user_email")
+    current_token = st.session_state.get("session_token")
+    if not email or not current_token:
+        return False, "Not signed in."
+    if len(new_password) < 8:
+        return False, "New password must be at least 8 characters."
+    if new_password == current_password:
+        return False, "New password must be different from the current one."
+    with _connect() as conn:
+        row = conn.execute("SELECT * FROM users WHERE email = ?", (email,)).fetchone()
+        if not row:
+            return False, "No account with that email."
+        salt = bytes.fromhex(row["password_salt"])
+        if not hmac.compare_digest(_hash_password(current_password, salt), row["password_hash"]):
+            return False, "Current password is incorrect."
+        new_salt = os.urandom(16)
+        conn.execute(
+            "UPDATE users SET password_hash = ?, password_salt = ? WHERE id = ?",
+            (_hash_password(new_password, new_salt), new_salt.hex(), row["id"]),
+        )
+        conn.execute(
+            "DELETE FROM sessions WHERE user_id = ? AND token != ?",
+            (row["id"], current_token),
+        )
+    return True, "Password updated."
+
+
 def login(email: str, password: str) -> tuple[bool, str]:
     email = email.strip().lower()
     with _connect() as conn:

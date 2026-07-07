@@ -94,6 +94,51 @@ def test_reset_password_rejects_short_password(auth):
     assert "8 characters" in msg
 
 
+def test_change_password_requires_correct_current_password(auth):
+    auth.register(EMAIL, PASSWORD, "Person")
+    auth.login(EMAIL, PASSWORD)
+    ok, msg = auth.change_password("not-the-password", "brandnewpass456")
+    assert ok is False
+    assert "incorrect" in msg.lower()
+    # Old password still works — nothing was changed.
+    assert auth.login(EMAIL, PASSWORD)[0] is True
+
+
+def test_change_password_swaps_credentials(auth):
+    auth.register(EMAIL, PASSWORD, "Person")
+    auth.login(EMAIL, PASSWORD)
+    ok, _ = auth.change_password(PASSWORD, "brandnewpass456")
+    assert ok
+    assert auth.login(EMAIL, PASSWORD)[0] is False
+    assert auth.login(EMAIL, "brandnewpass456")[0] is True
+
+
+def test_change_password_keeps_current_session_kills_others(auth):
+    auth.register(EMAIL, PASSWORD, "Person")
+    auth.login(EMAIL, PASSWORD)
+    current = auth.st.session_state["session_token"]
+    with auth._connect() as conn:
+        user_id = conn.execute("SELECT id FROM users WHERE email = ?", (EMAIL,)).fetchone()["id"]
+    other = auth._create_session(user_id)  # e.g. another browser
+
+    assert auth.change_password(PASSWORD, "brandnewpass456")[0] is True
+    assert auth.resolve_session(current) is not None
+    assert auth.resolve_session(other) is None
+
+
+def test_change_password_rejects_short_or_same_password(auth):
+    auth.register(EMAIL, PASSWORD, "Person")
+    auth.login(EMAIL, PASSWORD)
+    assert auth.change_password(PASSWORD, "short")[0] is False
+    assert auth.change_password(PASSWORD, PASSWORD)[0] is False
+
+
+def test_change_password_requires_login(auth):
+    ok, msg = auth.change_password(PASSWORD, "brandnewpass456")
+    assert ok is False
+    assert "signed in" in msg.lower()
+
+
 def test_reset_password_invalidates_existing_sessions(auth):
     auth.register(EMAIL, PASSWORD, "Person")
     ok, _ = auth.login(EMAIL, PASSWORD)
