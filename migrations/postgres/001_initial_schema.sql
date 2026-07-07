@@ -160,6 +160,10 @@ create table if not exists public.broker_transactions (
 );
 create index if not exists broker_transactions_user_idx
     on public.broker_transactions (user_id, trade_date);
+-- Covers the import_id FK (Supabase performance advisor: unindexed FKs make
+-- cascading deletes of a broker_imports row scan the whole table).
+create index if not exists broker_transactions_import_idx
+    on public.broker_transactions (import_id);
 
 -- ── Row Level Security ───────────────────────────────────────────────────────
 -- One owner-only policy per per-user table: a signed-in user can see and
