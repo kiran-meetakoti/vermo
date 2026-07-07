@@ -1,88 +1,73 @@
 # Vermo
 
-A FastAPI + Streamlit portfolio tracker for consolidating investments across India, Germany, and global markets.
+A personal-finance tracker for consolidating investments across India,
+Germany, and global markets — portfolio, budget, debt, and net worth in one
+place. Streamlit UI + FastAPI backend, SQLite storage, local multi-account
+auth, on a staged path to a hosted multi-tenant product.
 
-## Run in VS Code
+## Features
 
-1. Open this folder in VS Code.
-2. Create the environment and install dependencies with `uv`:
+- **Portfolio** — consolidated EUR portfolio (EUR/USD/INR display), CSV import
+  (own template, transaction-history exports, India broker snapshots), daily
+  snapshots with a real performance-history chart, market-cap and
+  barbell-strategy classification, health & diversification suggestions.
+- **Prices** — reference FX (Frankfurter) + delayed Yahoo Finance quotes for
+  mapped instruments; explicit refreshed / FX-only / failed reporting.
+- **Budget** — salary vs. expenses, PDF bank-statement import with
+  auto-categorization and a duplicate-import guard, recurring expenses,
+  daily/weekly/monthly/yearly spending trends.
+- **Debt tracker** — payoff projections with interest-rate inference.
+- **Other assets** — manually tracked assets (real estate, cash, crypto, …)
+  rolled into net worth.
+- **Accounts** — email+password login, per-user data isolation, session
+  tokens shared between the UI and the API.
+
+## Quick start
+
+Requires Python ≥ 3.9 and [uv](https://docs.astral.sh/uv/).
 
 ```bash
 cd ~/Documents/FinApp
 uv sync
-```
 
-3. Open **Run and Debug** and select **Run Vermo FastAPI**.
-4. Visit `http://localhost:8000`.
-
-You can also run it directly:
-
-```bash
-cd ~/Documents/FinApp
+# Terminal 1 — API + legacy dashboard (http://localhost:8000, docs at /docs)
 uv run uvicorn main:app --reload --port 8000
+
+# Terminal 2 — primary UI (http://localhost:8501)
+uv run streamlit run streamlit_app.py
 ```
 
-If you are running the command from another directory, specify the project explicitly:
+First run creates the databases under `data/` and shows a signup form.
+`data/` is gitignored — it contains personal financial data.
 
 ```bash
-python3 -m uv run --project ~/Documents/FinApp uvicorn main:app --reload --port 8000
+uv run pytest   # run the test suite
 ```
 
-FastAPI API documentation is available at `http://localhost:8000/docs`.
+## Documentation
 
-## Import a CSV portfolio
+| Doc | What's in it |
+|---|---|
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | System overview, process topology, auth flow, module map, design decisions |
+| [docs/DATA_MODEL.md](docs/DATA_MODEL.md) | Every table, schema conventions, migration rules |
+| [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) | Setup, testing, conventions, how-to recipes for extending the app |
+| [MULTI_USER_ROADMAP.md](MULTI_USER_ROADMAP.md) | Staged plan from local app to hosted product (current status inside) |
+| [CLAUDE.md](CLAUDE.md) | Working agreements for AI-assisted development |
 
-Download the template from `http://localhost:8000/portfolio-template.csv`, update the rows, and click **Import CSV** in the dashboard.
+## Importing data
 
-Required columns:
+- **Portfolio CSV**: download the template at
+  `http://localhost:8000/portfolio-template.csv`, fill it in, and use
+  **Import CSV** in the UI. Markets: `India`, `Global`. Asset classes:
+  `Equities`, `ETFs & Funds`, `Fixed income`, `Cash & others`. Re-importing a
+  ticker+market updates the existing holding. Transaction-history exports
+  (BUY/SELL rows) and India broker snapshots are auto-detected.
+- **Bank/credit-card statements (PDF)**: Budget tracker → upload → review the
+  editable preview → import. Already-imported rows are skipped automatically.
 
-```csv
-name,ticker,market,value_eur,return_percent,asset_class
-Reliance Industries,RELIANCE,India,23840,14.8,Equities
-Vanguard FTSE All-World,VWCE,Global,19760,9.2,ETFs & Funds
-```
+## Status & disclaimers
 
-Supported markets are `India` and `Global`. Supported asset classes are `Equities`, `ETFs & Funds`, `Fixed income`, and `Cash & others`. Values are currently imported in EUR. Importing the same ticker and market again updates the existing holding.
-
-The importer also accepts transaction-history CSV exports with `BUY` and `SELL` rows. Open positions are consolidated as `Global` holdings using average-cost accounting. The latest recorded transaction price is used as a provisional valuation until live market prices are connected.
-
-India broker portfolio snapshots with `Stock Name`, `Company Name`, `CMP`, `Invested Value`, and `Qty` columns are supported too. INR values currently use the prototype rate in `main.py`; live FX conversion is the next planned improvement.
-
-Portfolio data is stored locally in `data/portfolio.db`. The database also keeps an import history so refreshed broker exports can update existing positions without creating duplicates.
-
-Manual holdings transcribed from screenshots can be stored as ignored `data/manual-*.csv` files and imported into SQLite. Keep these files local because they contain personal financial information.
-
-The dashboard records one SQLite portfolio snapshot per day for `All`, `India`, and `Global`. The performance chart uses these real snapshots and starts building history from the first recorded day. Recent import timestamps are shown on the Overview page.
-
-## Refresh prices
-
-Click **Refresh prices** to fetch reference FX and delayed informational market quotes. EUR/INR and EUR/USD rates use Frankfurter reference data. Mapped stocks and ETFs use Yahoo Finance delayed quotes. Instruments without a verified provider mapping keep their imported price while their EUR value is adjusted for the latest FX rate. The dashboard reports refreshed, FX-only, and failed counts explicitly.
-
-Mutual-fund screenshot rows do not have exact AMFI scheme codes yet, so they currently receive FX-only updates. Add exact scheme mappings before treating their NAV values as refreshed.
-
-## Asset classification
-
-Holdings are separated into stocks, mutual funds, ETFs, and other assets. Stock holdings are grouped into large-cap, mid-cap, small-cap, and unclassified buckets using the curated mappings in `main.py`. Review these mappings periodically because market-cap classifications can change over time.
-
-## Barbell strategy view
-
-The dashboard includes a configurable heuristic view with three roles:
-
-- `Core`: diversified, defensive, or liquid building blocks
-- `Upside`: intentional higher-risk exposure with asymmetric upside potential
-- `Review`: holdings that do not clearly fit either side yet
-
-This is a portfolio-review aid, not personalized financial advice. The mappings live in `main.py` and should be adjusted to your goals, risk tolerance, time horizon, and definition of a barbell strategy.
-
-## Included
-
-- Consolidated EUR portfolio with EUR, USD, and INR display options
-- FastAPI dashboard and holdings endpoints
-- CSV portfolio import with a downloadable template
-- SQLite persistence with import history
-- Daily portfolio snapshots and a real performance-history chart
-- Stock, mutual-fund, and ETF separation with curated equity market-cap buckets
-- Configurable barbell-strategy roles with a review bucket
-- Holdings search, market filters, sorting, cost basis, quantity, and profit/loss
-- Portfolio health and diversification suggestions
-- VS Code debug configuration
+Runs locally today; multi-user schema and auth are in place, hosting is
+planned (see the roadmap). The barbell view and all suggestions are
+portfolio-review aids, **not** personalized financial advice. Market-cap and
+barbell mappings are curated in `main.py` — review them periodically.
