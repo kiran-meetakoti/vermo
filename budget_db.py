@@ -75,6 +75,60 @@ def expense_exists(
     return row is not None
 
 
+def ensure_recurring_expenses(
+    user_id: str,
+    db_file: Path | str = DATABASE_FILE,
+    today: date | None = None,
+) -> int:
+    """Materialize a concrete row for each month a recurring expense (e.g. Rent,
+    Loan) should appear in, from its earliest occurrence through the current
+    month — so marking something recurring means it never has to be re-entered
+    by hand.
+
+    Grouped by (name, category); the most recent row's amount is the template
+    for the backfilled months. Idempotent: months that already have a row are
+    left untouched. `today` exists so tests can pin the current month.
+    Returns the number of rows inserted."""
+    current_month = (today or date.today()).strftime("%Y-%m")
+    now = _utc_now()
+    inserted = 0
+    with connect(db_file) as connection:
+        rows = connection.execute(
+            "SELECT * FROM budget_expenses WHERE user_id = ? AND is_recurring = 1", (user_id,)
+        ).fetchall()
+        if not rows:
+            return 0
+        groups: dict[tuple[str, str], list[sqlite3.Row]] = {}
+        for row in rows:
+            groups.setdefault((row["name"], row["category"]), []).append(row)
+
+        for (name, category), group in groups.items():
+            group_sorted = sorted(group, key=lambda r: r["expense_date"] or "")
+            start_month = (group_sorted[0]["expense_date"] or "")[:7]
+            template_amount = group_sorted[-1]["amount_eur"]
+            existing_months = {(r["expense_date"] or "")[:7] for r in group}
+            if not start_month:
+                continue
+
+            year, month = map(int, start_month.split("-"))
+            month_cursor = start_month
+            while month_cursor <= current_month:
+                if month_cursor not in existing_months:
+                    connection.execute(
+                        "INSERT INTO budget_expenses "
+                        "(id, user_id, name, category, amount_eur, expense_date, created_at, updated_at, is_recurring) "
+                        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)",
+                        (str(uuid4()), user_id, name, category, template_amount, f"{month_cursor}-01", now, now),
+                    )
+                    inserted += 1
+                month += 1
+                if month > 12:
+                    month = 1
+                    year += 1
+                month_cursor = f"{year:04d}-{month:02d}"
+    return inserted
+
+
 def add_expense(
     user_id: str,
     name: str,

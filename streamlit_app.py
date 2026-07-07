@@ -208,44 +208,11 @@ def init_budget_tables() -> None:
 
 
 def ensure_recurring_expenses() -> None:
-    """Materialize a concrete row for each month a recurring expense (e.g. Rent, Loan)
-    should appear in, from its earliest occurrence through the current month — so
-    marking something recurring means it never has to be re-entered by hand."""
-    with connect() as connection:
-        rows = connection.execute(
-            "SELECT * FROM budget_expenses WHERE user_id = ? AND is_recurring = 1", (LOCAL_USER_ID,)
-        ).fetchall()
-        if not rows:
-            return
-        groups: dict[tuple[str, str], list[sqlite3.Row]] = {}
-        for row in rows:
-            groups.setdefault((row["name"], row["category"]), []).append(row)
-
-        current_month = date.today().strftime("%Y-%m")
-        now = utc_now()
-        for (name, category), group in groups.items():
-            group_sorted = sorted(group, key=lambda r: r["expense_date"] or "")
-            start_month = (group_sorted[0]["expense_date"] or "")[:7]
-            template_amount = group_sorted[-1]["amount_eur"]
-            existing_months = {(r["expense_date"] or "")[:7] for r in group}
-            if not start_month:
-                continue
-
-            year, month = map(int, start_month.split("-"))
-            month_cursor = start_month
-            while month_cursor <= current_month:
-                if month_cursor not in existing_months:
-                    connection.execute(
-                        "INSERT INTO budget_expenses "
-                        "(id, user_id, name, category, amount_eur, expense_date, created_at, updated_at, is_recurring) "
-                        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)",
-                        (str(uuid4()), LOCAL_USER_ID, name, category, template_amount, f"{month_cursor}-01", now, now),
-                    )
-                month += 1
-                if month > 12:
-                    month = 1
-                    year += 1
-                month_cursor = f"{year:04d}-{month:02d}"
+    """Materialize monthly rows for recurring expenses (Rent, Loan, …).
+    Delegates to budget_db so the month-rollover/idempotency logic is
+    unit-tested there — subtle bugs here mean silently missing or doubled
+    rent/loan rows for some month."""
+    budget_db.ensure_recurring_expenses(LOCAL_USER_ID)
 
 
 MANUAL_ASSET_CATEGORIES = [
