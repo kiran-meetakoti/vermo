@@ -43,8 +43,9 @@ Preview config: `vermo-streamlit-preview` (port 8510) in `.claude/launch.json`.
 - `LOCAL_USER_ID` exists in BOTH `main.py` and `streamlit_app.py`; in
   Streamlit it's reassigned to the logged-in user at startup. It is only a
   default for direct script/test calls, never route authorization.
-- Ticker classification maps (Yahoo symbols, cap buckets, barbell roles) are
-  duplicated between `main.py` and `streamlit_app.py` — change both.
+- Ticker classification maps (Yahoo symbols, cap buckets, barbell roles)
+  live in `market_data.py` only — the old duplication between `main.py`
+  and `streamlit_app.py` is gone; never re-introduce local copies.
 - HTML for `st.markdown(unsafe_allow_html=True)` must be single-line
   f-strings (multi-line + empty optional spans → Markdown code-block bug).
 - Requires Python ≥ 3.9; `run_streamlit.py` patches a 3.9 Protocol issue.

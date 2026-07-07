@@ -195,10 +195,17 @@ mechanical query-syntax changes plus the RLS policies.
 
 Goal: a URL anyone can sign up at, not `localhost`.
 
-1. **Backend (FastAPI)**: Fly.io or Railway — both have simple `Dockerfile`
-   deploys and free/cheap tiers for a project this size.
+Decision 2026-07-07: start with **Streamlit Community Cloud (free)** — the
+Streamlit app is now self-contained (price refresh runs in-process via
+`portfolio_core`, no localhost FastAPI needed; `requirements.txt` added for
+Cloud's installer; secrets go in the Cloud dashboard, which exposes them as
+env vars that `db._env` already reads). FastAPI stays a local/dev service
+until the Stage 5 frontend needs it hosted (then Fly.io/Hetzner ~€5/mo).
+
+1. ~~**Backend (FastAPI)**: Fly.io or Railway~~ — deferred to Stage 5; not
+   needed for the hosted Streamlit app.
 2. **Frontend (Streamlit)**: Streamlit Community Cloud (free, built for
-   this) or co-locate it on the same host as the backend.
+   this). Needs the repo pushed to GitHub (private is fine).
 3. Custom domain + HTTPS (Fly/Railway/Streamlit Cloud all handle TLS
    automatically once a domain is pointed at them).
 4. Move price refresh off a manual button and onto a scheduled job (cron
