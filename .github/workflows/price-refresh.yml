@@ -1,6 +1,9 @@
 # Automatic price refresh — the app updates itself instead of relying on
-# the sidebar button. Every 30 minutes across Indian + European + US market
-# hours on weekdays (times in UTC), plus manual runs via workflow_dispatch.
+# the sidebar button. Hourly across Indian + European + US market hours on
+# weekdays (times in UTC), plus manual runs via workflow_dispatch. Hourly,
+# not more often: Yahoo quotes are ~15-min delayed anyway, and this keeps
+# Actions usage at a fraction of the free private-repo quota (2,000
+# min/month; each run bills rounded up to whole minutes).
 #
 # Requires the repository secret DATABASE_URL (Settings → Secrets and
 # variables → Actions): the Supabase session-pooler URI.
@@ -8,7 +11,7 @@ name: Price refresh
 
 on:
   schedule:
-    - cron: "*/30 4-21 * * 1-5"
+    - cron: "10 4-21 * * 1-5"
   workflow_dispatch:
 
 concurrency:
@@ -22,6 +25,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true  # cached deps keep each run under a billed minute
       - name: Install dependencies
         run: uv sync --frozen
       - name: Refresh all users

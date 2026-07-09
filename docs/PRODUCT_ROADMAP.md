@@ -66,7 +66,7 @@ small code; every item is independently shippable.
    scheduled jobs. Needs a Sentry project + DSN in Streamlit Cloud secrets
    to activate.
 3. [x] **Scheduled price refresh:** done 2026-07-08 —
-   `scripts/refresh_all_users.py` + `price-refresh.yml` (every 30 min,
+   `scripts/refresh_all_users.py` + `price-refresh.yml` (hourly,
    weekdays 04–21 UTC; red when failures outnumber refreshes). Needs the
    DATABASE_URL repo secret. Cross-user ticker dedup deferred until there
    are enough users for rate limits to matter (refresh already dedups
