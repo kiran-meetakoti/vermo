@@ -1,0 +1,45 @@
+# Nightly encrypted backup of the production database (public + auth
+# schemas) stored as a workflow artifact for 30 days. Restore drill:
+# docs/DEVELOPMENT.md → "Backups".
+#
+# Requires repository secrets:
+#   DATABASE_URL       — Supabase session-pooler URI
+#   BACKUP_PASSPHRASE  — encryption passphrase (keep a copy in a password
+#                        manager; an unreadable backup is no backup)
+name: Nightly backup
+
+on:
+  schedule:
+    - cron: "17 2 * * *"
+  workflow_dispatch:
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Dump database (pg_dump 17, matching the server)
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          docker run --rm -v "$PWD:/backup" -e DATABASE_URL postgres:17 \
+            sh -c 'pg_dump "$DATABASE_URL" --schema=public --schema=auth \
+                   --no-owner --format=custom --file=/backup/vermo.dump'
+          ls -lh vermo.dump
+
+      - name: Encrypt
+        env:
+          BACKUP_PASSPHRASE: ${{ secrets.BACKUP_PASSPHRASE }}
+        run: |
+          openssl enc -aes-256-cbc -pbkdf2 -salt \
+            -in vermo.dump -out "vermo-$(date -u +%Y%m%d).dump.enc" \
+            -pass env:BACKUP_PASSPHRASE
+          rm vermo.dump
+
+      - name: Store as artifact (30 days)
+        uses: actions/upload-artifact@v4
+        with:
+          name: vermo-backup-${{ github.run_id }}
+          path: "*.dump.enc"
+          retention-days: 30
+          if-no-files-found: error

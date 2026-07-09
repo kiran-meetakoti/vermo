@@ -19,6 +19,9 @@ from pydantic import BaseModel, Field, ValidationError
 import db
 import portfolio_core
 from auth.local_auth import resolve_session
+from monitoring import init_monitoring
+
+init_monitoring("fastapi")
 from market_data import classify_holding, classify_barbell
 from portfolio_core import DEFAULT_FX_RATES, inferred_invested, utc_now
 

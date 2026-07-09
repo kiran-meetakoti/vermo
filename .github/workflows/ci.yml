@@ -1,0 +1,23 @@
+# CI: the full test suite runs on every push and PR. A sellable product
+# does not merge red — enable branch protection on main once this is green.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    env:
+      # Belt and suspenders: tests must never touch the production database,
+      # even if a secret leaks into the environment.
+      VERMO_BACKEND: sqlite
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - name: Install dependencies
+        run: uv sync --frozen
+      - name: Run test suite
+        run: uv run pytest -q

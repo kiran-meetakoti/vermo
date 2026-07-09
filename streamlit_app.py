@@ -16,6 +16,9 @@ import budget_db
 import db
 import goals_db
 import income_db
+from monitoring import init_monitoring
+
+init_monitoring("streamlit")
 import market_data
 import portfolio_core
 from market_data import classify_holding, classify_barbell

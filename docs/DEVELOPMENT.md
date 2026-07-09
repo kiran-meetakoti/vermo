@@ -127,6 +127,41 @@ Curated ticker → Yahoo symbol maps live at the top of `main.py`
 their NAVs count as refreshed. Cap-bucket and barbell maps are nearby and
 duplicated in `streamlit_app.py` — update both.
 
+## CI, scheduled jobs, and monitoring
+
+- **CI** (`.github/workflows/ci.yml`): full pytest suite on every push/PR,
+  pinned to SQLite so tests can never touch production. Keep it green;
+  enable branch protection on `main`.
+- **Price refresh** (`price-refresh.yml`): every 30 min on weekdays
+  (04–21 UTC) runs `scripts/refresh_all_users.py`. Needs the
+  `DATABASE_URL` repo secret. Goes red if failures outnumber refreshes.
+- **Sentry** (`monitoring.py`): opt-in via `SENTRY_DSN` (env / Streamlit
+  Cloud secrets / Actions secret). No PII is sent.
+
+## Backups
+
+`backup.yml` stores a nightly `pg_dump` (public + auth schemas, custom
+format, pg_dump 17) encrypted with AES-256 as a workflow artifact,
+retained 30 days. Needs repo secrets `DATABASE_URL` and
+`BACKUP_PASSPHRASE` (keep the passphrase in a password manager — an
+unreadable backup is no backup).
+
+**Restore drill** (practice before you need it):
+
+```bash
+# 1. Download the artifact from the Actions run, then decrypt:
+openssl enc -d -aes-256-cbc -pbkdf2 -in vermo-YYYYMMDD.dump.enc \
+    -out vermo.dump -pass pass:'<passphrase>'
+
+# 2. Restore into a scratch database first — NEVER straight into prod:
+docker run --rm -v "$PWD:/backup" postgres:17 \
+    pg_restore --no-owner --clean --if-exists \
+    --dbname "$SCRATCH_DATABASE_URL" /backup/vermo.dump
+
+# 3. Sanity-check row counts (holdings, snapshots, budget_expenses)
+#    against the live DB before considering a real restore.
+```
+
 ## Documentation upkeep
 
 Docs are part of the product (the goal is a sellable, maintainable codebase):

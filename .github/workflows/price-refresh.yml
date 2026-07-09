@@ -1,0 +1,31 @@
+# Automatic price refresh — the app updates itself instead of relying on
+# the sidebar button. Every 30 minutes across Indian + European + US market
+# hours on weekdays (times in UTC), plus manual runs via workflow_dispatch.
+#
+# Requires the repository secret DATABASE_URL (Settings → Secrets and
+# variables → Actions): the Supabase session-pooler URI.
+name: Price refresh
+
+on:
+  schedule:
+    - cron: "*/30 4-21 * * 1-5"
+  workflow_dispatch:
+
+concurrency:
+  group: price-refresh
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - name: Install dependencies
+        run: uv sync --frozen
+      - name: Refresh all users
+        env:
+          VERMO_BACKEND: postgres
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: uv run python scripts/refresh_all_users.py

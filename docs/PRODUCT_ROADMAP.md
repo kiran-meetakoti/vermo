@@ -58,23 +58,28 @@ Streamlit does. Two clients are involved:
 Make what exists safe and reliable for strangers. Mostly configuration and
 small code; every item is independently shippable.
 
-1. **CI:** GitHub Actions — `uv run pytest` on every push/PR; branch
-   protection on `main`. A sellable product does not merge red.
-2. **Error monitoring:** Sentry SDK in Streamlit + FastAPI (free tier).
-   Failures must surface without a user reporting them.
-3. **Scheduled price refresh:** GitHub Actions cron (e.g. every 30 min,
-   06:00–22:00 UTC weekdays) running `portfolio_core.refresh_prices` for all
-   users via service credentials. Removes the manual button as the only path.
-   Includes the Stage-4 dedup: fetch each distinct ticker once, fan out to
-   all holders.
+1. [x] **CI:** done 2026-07-08 — `.github/workflows/ci.yml`, pytest on every
+   push/PR, VERMO_BACKEND pinned to sqlite. Still to do: enable branch
+   protection on `main` (GitHub Settings → Branches).
+2. [x] **Error monitoring:** done 2026-07-08 — `monitoring.py` (Sentry,
+   opt-in via SENTRY_DSN, no PII) wired into Streamlit, FastAPI, and the
+   scheduled jobs. Needs a Sentry project + DSN in Streamlit Cloud secrets
+   to activate.
+3. [x] **Scheduled price refresh:** done 2026-07-08 —
+   `scripts/refresh_all_users.py` + `price-refresh.yml` (every 30 min,
+   weekdays 04–21 UTC; red when failures outnumber refreshes). Needs the
+   DATABASE_URL repo secret. Cross-user ticker dedup deferred until there
+   are enough users for rate limits to matter (refresh already dedups
+   within a user).
 4. **Custom SMTP** (Resend/Brevo free tier → Supabase Auth settings): real
    signup-confirmation and password-reset emails; the built-in service is
    rate-limited to a handful per hour.
 5. **Auth hardening:** enable leaked-password protection (dashboard toggle);
    rate limits on auth endpoints; rotate the DB password (overdue).
-6. **Backups:** nightly `pg_dump` via GitHub Actions to a private location +
-   restore drill documented in DEVELOPMENT.md. (Supabase PITR when revenue
-   justifies the paid tier.)
+6. [x] **Backups:** done 2026-07-08 — `backup.yml`: nightly pg_dump 17
+   (public + auth), AES-256-encrypted, 30-day artifacts; restore drill in
+   DEVELOPMENT.md. Needs DATABASE_URL + BACKUP_PASSPHRASE repo secrets.
+   (Supabase PITR when revenue justifies the paid tier.)
 7. **Legal minimum:** privacy policy + terms pages (host on the app +
    landing page), GDPR basics — we're EU-based holding EU users' financial
    data: data export and account deletion must work (deletion largely does:
