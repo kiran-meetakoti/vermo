@@ -132,7 +132,7 @@ duplicated in `streamlit_app.py` — update both.
 - **CI** (`.github/workflows/ci.yml`): full pytest suite on every push/PR,
   pinned to SQLite so tests can never touch production. Keep it green;
   enable branch protection on `main`.
-- **Price refresh** (`price-refresh.yml`): hourly on weekdays (04–21 UTC) runs `scripts/refresh_all_users.py`. Needs the
+- **Price refresh** (`price-refresh.yml`): once per weekday at 22:10 UTC (after all three markets close) runs `scripts/refresh_all_users.py`. Needs the
   `DATABASE_URL` repo secret. Goes red if failures outnumber refreshes.
 - **Sentry** (`monitoring.py`): opt-in via `SENTRY_DSN` (env / Streamlit
   Cloud secrets / Actions secret). No PII is sent.
