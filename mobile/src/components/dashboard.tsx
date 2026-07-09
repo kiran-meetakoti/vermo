@@ -9,6 +9,7 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
+import { NetWorthChart, type SnapshotPoint } from "@/components/net-worth-chart";
 import { colors, euro, percent } from "@/constants/vermo";
 import { useAuth } from "@/lib/auth";
 import { supabase } from "@/lib/supabase";
@@ -26,25 +27,32 @@ type Holding = {
 export function Dashboard() {
   const { session } = useAuth();
   const [holdings, setHoldings] = useState<Holding[]>([]);
+  const [snapshots, setSnapshots] = useState<SnapshotPoint[]>([]);
   const [otherAssetsTotal, setOtherAssetsTotal] = useState(0);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setError(null);
-    // RLS scopes both queries to the signed-in user automatically.
-    const [holdingsResult, assetsResult] = await Promise.all([
+    // RLS scopes every query to the signed-in user automatically.
+    const [holdingsResult, assetsResult, snapshotsResult] = await Promise.all([
       supabase
         .from("holdings")
         .select("id, name, ticker, market, value_eur, invested_eur, return_percent")
         .order("value_eur", { ascending: false }),
       supabase.from("manual_assets").select("value_eur"),
+      supabase
+        .from("snapshots")
+        .select("snapshot_date, net_worth_eur")
+        .eq("market", "All")
+        .order("snapshot_date", { ascending: true }),
     ]);
-    if (holdingsResult.error || assetsResult.error) {
-      setError((holdingsResult.error ?? assetsResult.error)!.message);
+    if (holdingsResult.error || assetsResult.error || snapshotsResult.error) {
+      setError((holdingsResult.error ?? assetsResult.error ?? snapshotsResult.error)!.message);
       return;
     }
     setHoldings((holdingsResult.data ?? []) as Holding[]);
+    setSnapshots((snapshotsResult.data ?? []) as SnapshotPoint[]);
     setOtherAssetsTotal(
       (assetsResult.data ?? []).reduce((sum, row: any) => sum + Number(row.value_eur ?? 0), 0),
     );
@@ -111,6 +119,8 @@ export function Dashboard() {
                 <Text style={styles.tileSub}>across India + Global</Text>
               </View>
             </View>
+
+            <NetWorthChart points={snapshots} />
 
             {error ? <Text style={styles.error}>{error}</Text> : null}
             <Text style={styles.sectionTitle}>Holdings</Text>

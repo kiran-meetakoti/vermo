@@ -9,10 +9,14 @@ data; heavier business logic stays in the Python backend.
 
 - ✅ Email/password login against Supabase Auth (sessions persist via
   AsyncStorage; auto-refresh).
-- ✅ Overview dashboard: total wealth, P/L, positions, holdings list,
-  pull-to-refresh. RLS scopes every query to the signed-in user.
-- ⬜ Next: net-worth chart (snapshots), Income/Goals screens, price-refresh
-  trigger, biometric unlock, push notifications, EAS store builds.
+- ✅ Tab navigation: Overview · Income · Goals.
+- ✅ Overview: total-wealth hero, P/L tile, net-worth chart (SVG, from the
+  snapshots history), holdings list, pull-to-refresh.
+- ✅ Income: 12m/this-year/monthly-average tiles + recent events.
+- ✅ Goals: progress cards vs total wealth. (On-track/required-monthly
+  verdicts stay server-side — they arrive with the hosted API in P2.)
+- ⬜ Next: price-refresh trigger, sign-up flow, biometric unlock, push
+  notifications, EAS store builds.
 
 ## Run it
 
