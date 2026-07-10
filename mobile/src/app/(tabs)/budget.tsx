@@ -22,6 +22,10 @@ type Expense = {
   expense_date: string;
 };
 
+function compactEuro(value: number): string {
+  return value >= 1000 ? `€${(value / 1000).toFixed(value >= 10000 ? 0 : 1)}k` : `€${Math.round(value)}`;
+}
+
 // Same category set the web app's auto-categorizer produces.
 const CATEGORIES = [
   "Groceries", "Eating out", "Transport", "Rent", "Utilities",
@@ -46,7 +50,7 @@ export default function BudgetTab() {
         .from("budget_expenses")
         .select("id, name, category, amount_eur, expense_date")
         .order("expense_date", { ascending: false })
-        .limit(200),
+        .limit(1000),
       supabase.from("budget_settings").select("value").eq("key", "monthly_salary").maybeSingle(),
     ]);
     setExpenses((expensesResult.data ?? []) as Expense[]);
@@ -70,6 +74,30 @@ export default function BudgetTab() {
   );
   const spent = thisMonth.reduce((total, e) => total + Number(e.amount_eur), 0);
   const remaining = salary - spent;
+
+  const savingsRate = salary > 0 ? (remaining / salary) * 100 : 0;
+
+  // Last six calendar months (including the current one), zero-filled.
+  const monthlyTrend = useMemo(() => {
+    const totals = new Map<string, number>();
+    for (const e of expenses) {
+      const month = (e.expense_date ?? "").slice(0, 7);
+      if (month) totals.set(month, (totals.get(month) ?? 0) + Number(e.amount_eur));
+    }
+    const now = new Date();
+    const months: { key: string; label: string; total: number }[] = [];
+    for (let back = 5; back >= 0; back -= 1) {
+      const d = new Date(now.getFullYear(), now.getMonth() - back, 1);
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+      months.push({
+        key,
+        label: d.toLocaleDateString("en-US", { month: "short" }),
+        total: totals.get(key) ?? 0,
+      });
+    }
+    return months;
+  }, [expenses]);
+  const maxTrend = Math.max(...monthlyTrend.map((m) => m.total), 1);
 
   const byCategory = useMemo(() => {
     const totals = new Map<string, number>();
@@ -169,6 +197,31 @@ export default function BudgetTab() {
                 <Text style={[styles.tileValue, { color: remaining >= 0 ? colors.positive : colors.negative }]}>
                   {euro(remaining)}
                 </Text>
+                {salary > 0 ? (
+                  <Text style={styles.tileSub}>{savingsRate.toFixed(0)}% savings rate</Text>
+                ) : null}
+              </View>
+            </View>
+
+            <View style={styles.categoryCard}>
+              <Text style={styles.tileLabel}>SPENDING · LAST 6 MONTHS</Text>
+              <View style={styles.chartRow}>
+                {monthlyTrend.map((month) => (
+                  <View key={month.key} style={styles.barWrap}>
+                    <Text style={styles.barValue}>{month.total > 0 ? compactEuro(month.total) : ""}</Text>
+                    <View
+                      style={[
+                        styles.bar,
+                        {
+                          height: Math.max((month.total / maxTrend) * 96, month.total > 0 ? 6 : 2),
+                          backgroundColor:
+                            salary > 0 && month.total > salary ? colors.negative : colors.brandBright,
+                        },
+                      ]}
+                    />
+                    <Text style={styles.barLabel}>{month.label}</Text>
+                  </View>
+                ))}
               </View>
             </View>
 
@@ -243,6 +296,12 @@ const styles = StyleSheet.create({
   },
   tileLabel: { color: colors.muted, fontSize: 9.5, fontWeight: "800", letterSpacing: 0.6 },
   tileValue: { color: colors.ink, fontSize: 16, fontWeight: "800", marginTop: 3 },
+  tileSub: { color: colors.muted, fontSize: 10, marginTop: 2 },
+  chartRow: { flexDirection: "row", alignItems: "flex-end", gap: 6, marginTop: 12, height: 140 },
+  barWrap: { flex: 1, alignItems: "center", justifyContent: "flex-end" },
+  bar: { width: "72%", borderRadius: 4 },
+  barValue: { color: colors.muted, fontSize: 8.5, marginBottom: 3 },
+  barLabel: { color: colors.muted, fontSize: 9.5, marginTop: 4 },
   categoryCard: {
     backgroundColor: colors.panel, borderColor: colors.line, borderWidth: 1,
     borderRadius: 12, padding: 14, marginBottom: 16,
