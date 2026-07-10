@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   FlatList,
   Pressable,
@@ -31,6 +31,7 @@ export function Dashboard() {
   const [otherAssetsTotal, setOtherAssetsTotal] = useState(0);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [marketFilter, setMarketFilter] = useState("All");
 
   const load = useCallback(async () => {
     setError(null);
@@ -73,10 +74,21 @@ export function Dashboard() {
   const profit = portfolioValue - invested;
   const displayName = session?.user.user_metadata?.display_name ?? session?.user.email ?? "";
 
+  // Same market segmentation the web app's Holdings filter offers.
+  const marketOptions = useMemo(
+    () => ["All", ...[...new Set(holdings.map((h) => h.market).filter(Boolean))].sort()],
+    [holdings],
+  );
+  const visibleHoldings =
+    marketFilter === "All" ? holdings : holdings.filter((h) => h.market === marketFilter);
+  const visibleValue = visibleHoldings.reduce((sum, h) => sum + Number(h.value_eur ?? 0), 0);
+  const visibleInvested = visibleHoldings.reduce((sum, h) => sum + Number(h.invested_eur ?? 0), 0);
+  const visibleProfit = visibleValue - visibleInvested;
+
   return (
     <SafeAreaView style={styles.screen}>
       <FlatList
-        data={holdings}
+        data={visibleHoldings}
         keyExtractor={(item) => item.id}
         contentContainerStyle={styles.content}
         refreshControl={
@@ -124,6 +136,27 @@ export function Dashboard() {
 
             {error ? <Text style={styles.error}>{error}</Text> : null}
             <Text style={styles.sectionTitle}>Holdings</Text>
+            {marketOptions.length > 2 ? (
+              <View style={styles.chipRow}>
+                {marketOptions.map((market) => (
+                  <Pressable key={market} onPress={() => setMarketFilter(market)}>
+                    <Text style={[styles.chip, marketFilter === market && styles.chipActive]}>
+                      {market}
+                    </Text>
+                  </Pressable>
+                ))}
+              </View>
+            ) : null}
+            {marketFilter !== "All" ? (
+              <Text style={styles.filterSummary}>
+                {visibleHoldings.length} positions · {euro(visibleValue)} ·{" "}
+                <Text style={{ color: visibleProfit >= 0 ? colors.positive : colors.negative }}>
+                  {visibleProfit >= 0 ? "+" : ""}
+                  {euro(visibleProfit)}
+                  {visibleInvested ? ` (${percent((visibleProfit / visibleInvested) * 100)})` : ""}
+                </Text>
+              </Text>
+            ) : null}
           </View>
         }
         renderItem={({ item }) => (
@@ -179,6 +212,14 @@ const styles = StyleSheet.create({
   tileValue: { color: colors.ink, fontSize: 20, fontWeight: "800", marginVertical: 3 },
   tileSub: { color: colors.muted, fontSize: 11.5 },
   sectionTitle: { color: colors.ink, fontSize: 15, fontWeight: "700", marginBottom: 10 },
+  chipRow: { flexDirection: "row", flexWrap: "wrap", gap: 6, marginBottom: 10 },
+  chip: {
+    color: colors.muted, fontSize: 12, fontWeight: "600",
+    borderColor: colors.line, borderWidth: 1, borderRadius: 20,
+    paddingHorizontal: 12, paddingVertical: 5, overflow: "hidden",
+  },
+  chipActive: { color: "#fff", backgroundColor: colors.brand, borderColor: colors.brand },
+  filterSummary: { color: colors.muted, fontSize: 12, marginBottom: 10 },
   holdingRow: {
     flexDirection: "row", justifyContent: "space-between", alignItems: "center",
     backgroundColor: colors.panel, borderColor: colors.line, borderWidth: 1,

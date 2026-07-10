@@ -25,9 +25,9 @@
       "runtimeExecutable": "bash",
       "runtimeArgs": [
         "-c",
-        "cd mobile && PATH=$HOME/.local/share/fnm/node-versions/v24.18.0/installation/bin:$PATH npx expo start --web --port 8081"
+        "cd mobile && PATH=$HOME/.local/share/fnm/node-versions/v24.18.0/installation/bin:$PATH npx expo start --web --port 8082"
       ],
-      "port": 8081
+      "port": 8082
     }
   ]
 }

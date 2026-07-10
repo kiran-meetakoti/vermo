@@ -14,11 +14,25 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { colors } from "@/constants/vermo";
 import { supabase } from "@/lib/supabase";
 
+type Mode = "signin" | "signup";
+
 export function LoginScreen() {
+  const [mode, setMode] = useState<Mode>("signin");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+
+  const isSignup = mode === "signup";
+
+  function switchMode(next: Mode) {
+    setMode(next);
+    setError(null);
+    setNotice(null);
+    setConfirmPassword("");
+  }
 
   async function signIn() {
     setBusy(true);
@@ -36,6 +50,50 @@ export function LoginScreen() {
     }
     setBusy(false);
   }
+
+  async function signUp() {
+    if (password.length < 8) {
+      setError("Password must be at least 8 characters.");
+      return;
+    }
+    if (password !== confirmPassword) {
+      setError("Passwords don't match.");
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    const { data, error: signUpError } = await supabase.auth.signUp({
+      email: email.trim().toLowerCase(),
+      password,
+    });
+    setBusy(false);
+    if (signUpError) {
+      setError(
+        signUpError.message.includes("already registered")
+          ? "That email already has an account — log in instead."
+          : signUpError.message,
+      );
+      return;
+    }
+    // Supabase returns a user with an empty identities array when the email
+    // is already registered (it won't error, to avoid account enumeration).
+    if (data.user && data.user.identities?.length === 0) {
+      setError("That email already has an account — log in instead.");
+      return;
+    }
+    if (!data.session) {
+      switchMode("signin");
+      setNotice(
+        "Almost there — we sent a confirmation link to your email. Tap it, then log in here.",
+      );
+    }
+    // If confirmation is disabled, data.session is set and the auth
+    // listener signs the user straight in — nothing to do here.
+  }
+
+  const submit = isSignup ? signUp : signIn;
+  const canSubmit =
+    !busy && !!email && !!password && (!isSignup || !!confirmPassword);
 
   return (
     <SafeAreaView style={styles.screen}>
@@ -66,26 +124,41 @@ export function LoginScreen() {
           placeholder="Password"
           placeholderTextColor={colors.muted}
           secureTextEntry
-          autoComplete="current-password"
+          autoComplete={isSignup ? "new-password" : "current-password"}
           value={password}
           onChangeText={setPassword}
-          onSubmitEditing={signIn}
+          onSubmitEditing={isSignup ? undefined : signIn}
         />
+        {isSignup ? (
+          <TextInput
+            style={styles.input}
+            placeholder="Confirm password"
+            placeholderTextColor={colors.muted}
+            secureTextEntry
+            autoComplete="new-password"
+            value={confirmPassword}
+            onChangeText={setConfirmPassword}
+            onSubmitEditing={signUp}
+          />
+        ) : null}
         {error ? <Text style={styles.error}>{error}</Text> : null}
+        {notice ? <Text style={styles.notice}>{notice}</Text> : null}
         <Pressable
           style={({ pressed }) => [styles.button, pressed && { opacity: 0.85 }]}
-          onPress={signIn}
-          disabled={busy || !email || !password}
+          onPress={submit}
+          disabled={!canSubmit}
         >
           {busy ? (
             <ActivityIndicator color="#fff" />
           ) : (
-            <Text style={styles.buttonText}>Log in</Text>
+            <Text style={styles.buttonText}>{isSignup ? "Create account" : "Log in"}</Text>
           )}
         </Pressable>
-        <Text style={styles.footnote}>
-          Accounts are created on the Vermo web app for now.
-        </Text>
+        <Pressable onPress={() => switchMode(isSignup ? "signin" : "signup")} hitSlop={8}>
+          <Text style={styles.switchLink}>
+            {isSignup ? "Already have an account? Log in" : "New to Vermo? Create an account"}
+          </Text>
+        </Pressable>
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
@@ -107,10 +180,11 @@ const styles = StyleSheet.create({
     color: colors.ink, fontSize: 15, marginBottom: 12,
   },
   error: { color: colors.negative, fontSize: 13, marginBottom: 8 },
+  notice: { color: colors.positive, fontSize: 13, lineHeight: 18, marginBottom: 8 },
   button: {
     backgroundColor: colors.brand, borderRadius: 10, paddingVertical: 14,
     alignItems: "center", marginTop: 6,
   },
   buttonText: { color: "#fff", fontWeight: "700", fontSize: 15 },
-  footnote: { color: colors.muted, fontSize: 12, textAlign: "center", marginTop: 18 },
+  switchLink: { color: colors.brandBright, fontSize: 13, fontWeight: "600", textAlign: "center", marginTop: 18 },
 });

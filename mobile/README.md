@@ -7,16 +7,23 @@ data; heavier business logic stays in the Python backend.
 
 ## Status: walking skeleton
 
-- ✅ Email/password login against Supabase Auth (sessions persist via
-  AsyncStorage; auto-refresh).
-- ✅ Tab navigation: Overview · Income · Goals.
+- ✅ Email/password login + sign-up (confirm-password, email-confirmation
+  notice) against Supabase Auth (sessions persist via AsyncStorage;
+  auto-refresh).
+- ✅ Tab navigation: Overview · Budget · Income · Goals · Debt.
 - ✅ Overview: total-wealth hero, P/L tile, net-worth chart (SVG, from the
-  snapshots history), holdings list, pull-to-refresh.
+  snapshots history), holdings list with All/India/Global market filter,
+  pull-to-refresh.
+- ✅ Budget: salary vs spent vs remaining (+ savings rate), 6-month
+  spending-trend chart, top-category bars, add-expense form.
 - ✅ Income: 12m/this-year/monthly-average tiles + recent events.
 - ✅ Goals: progress cards vs total wealth. (On-track/required-monthly
   verdicts stay server-side — they arrive with the hosted API in P2.)
-- ⬜ Next: price-refresh trigger, sign-up flow, biometric unlock, push
-  notifications, EAS store builds.
+- ✅ Debt: loan details form, payoff projection with extra-payment
+  scenarios and balance-over-time chart (`src/lib/debt-math.ts` mirrors
+  `finance_math.debt_projection` — keep the two in sync).
+- ⬜ Next: price-refresh trigger, biometric unlock, push notifications,
+  EAS store builds.
 
 ## Run it
 

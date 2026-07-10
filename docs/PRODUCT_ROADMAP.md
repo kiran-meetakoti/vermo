@@ -166,13 +166,20 @@ Expo/React Native, TypeScript, one repo (`vermo-mobile` or monorepo folder).
 
 1. [~] **Weeks 1–2, walking skeleton:** STARTED 2026-07-07 — `mobile/` (Expo
    SDK 57 + expo-router + TypeScript): Supabase email/password login with
-   persisted sessions, Overview dashboard (total wealth, P/L, holdings
-   list, pull-to-refresh) reading through RLS via supabase-js. Verified
-   E2E on Expo web with a throwaway account. Still to do from this item:
-   sign-up flow, biometric unlock, tab navigation, run on Expo Go devices.
-2. **Weeks 3–5, core screens:** Holdings (list, detail, add/edit), net-worth
-   chart (victory-native/skia), Other assets, Budget (expense list, add,
-   monthly view), Debt tracker. Pull-to-refresh triggers price refresh.
+   persisted sessions, sign-up flow (2026-07-10: confirm-password +
+   email-confirmation notice), tab navigation, Overview dashboard (total
+   wealth, P/L, holdings list, pull-to-refresh) reading through RLS via
+   supabase-js. Verified E2E on Expo web. Still to do from this item:
+   biometric unlock, run on Expo Go devices.
+2. [~] **Weeks 3–5, core screens:** IN PROGRESS — done: net-worth chart
+   (SVG), Budget tab (expenses list/add, salary vs spent, category bars,
+   6-month spending-trend chart, savings rate), Debt tracker tab (loan
+   form, payoff projection with extra-payment scenarios and
+   balance-over-time chart; `mobile/src/lib/debt-math.ts` is a tested
+   port of `finance_math.debt_projection` — keep in sync), Overview
+   market filter (All/India/Global). Remaining: Holdings detail/add/edit,
+   Other assets, pull-to-refresh triggering a real price refresh (needs
+   the hosted API, P2).
 3. **Weeks 6–7, mobile-native value:** push notifications (price alerts,
    "monthly budget summary ready", recurring-expense posted) via Expo
    Notifications; offline read cache (last-fetched data visible without
