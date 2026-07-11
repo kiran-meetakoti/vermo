@@ -4,6 +4,7 @@ import {
   Pressable,
   RefreshControl,
   StyleSheet,
+  Switch,
   Text,
   View,
 } from "react-native";
@@ -12,6 +13,12 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { NetWorthChart, type SnapshotPoint } from "@/components/net-worth-chart";
 import { colors, euro, percent } from "@/constants/vermo";
 import { useAuth } from "@/lib/auth";
+import {
+  authenticate,
+  biometricAvailable,
+  biometricEnabled,
+  setBiometricEnabled,
+} from "@/lib/biometric";
 import { supabase } from "@/lib/supabase";
 
 type Holding = {
@@ -32,6 +39,23 @@ export function Dashboard() {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [marketFilter, setMarketFilter] = useState("All");
+  const [biometricSupported, setBiometricSupported] = useState(false);
+  const [biometricOn, setBiometricOn] = useState(false);
+
+  useEffect(() => {
+    (async () => {
+      const supported = await biometricAvailable();
+      setBiometricSupported(supported);
+      if (supported) setBiometricOn(await biometricEnabled());
+    })();
+  }, []);
+
+  async function toggleBiometric(next: boolean) {
+    // Confirm identity before changing the lock in either direction.
+    if (!(await authenticate())) return;
+    await setBiometricEnabled(next);
+    setBiometricOn(next);
+  }
 
   const load = useCallback(async () => {
     setError(null);
@@ -185,6 +209,22 @@ export function Dashboard() {
         ListEmptyComponent={
           <Text style={styles.empty}>No holdings yet — add your first on the web app.</Text>
         }
+        ListFooterComponent={
+          biometricSupported ? (
+            <View style={styles.securityRow}>
+              <View style={{ flex: 1, marginRight: 12 }}>
+                <Text style={styles.securityTitle}>Require Face ID / fingerprint</Text>
+                <Text style={styles.securitySub}>Lock Vermo when the app starts</Text>
+              </View>
+              <Switch
+                value={biometricOn}
+                onValueChange={toggleBiometric}
+                trackColor={{ true: colors.brand, false: colors.line }}
+                thumbColor="#ffffff"
+              />
+            </View>
+          ) : null
+        }
       />
     </SafeAreaView>
   );
@@ -232,4 +272,11 @@ const styles = StyleSheet.create({
   holdingValue: { color: colors.ink, fontSize: 14, fontWeight: "700" },
   error: { color: colors.negative, fontSize: 13, marginBottom: 10 },
   empty: { color: colors.muted, fontSize: 13, textAlign: "center", marginTop: 30 },
+  securityRow: {
+    flexDirection: "row", alignItems: "center",
+    backgroundColor: colors.panel, borderColor: colors.line, borderWidth: 1,
+    borderRadius: 10, paddingHorizontal: 14, paddingVertical: 12, marginTop: 14,
+  },
+  securityTitle: { color: colors.ink, fontSize: 13.5, fontWeight: "600" },
+  securitySub: { color: colors.muted, fontSize: 11.5, marginTop: 2 },
 });
