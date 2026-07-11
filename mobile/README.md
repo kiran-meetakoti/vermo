@@ -22,8 +22,10 @@ data; heavier business logic stays in the Python backend.
 - ✅ Debt: loan details form, payoff projection with extra-payment
   scenarios and balance-over-time chart (`src/lib/debt-math.ts` mirrors
   `finance_math.debt_projection` — keep the two in sync).
-- ⬜ Next: price-refresh trigger, biometric unlock, push notifications,
-  EAS store builds.
+- ✅ Biometric unlock: opt-in Face ID/fingerprint lock on cold start
+  (toggle at the bottom of Overview; device passcode fallback; never on web).
+- ⬜ Next: EAS store builds + TestFlight, push notifications (need real
+  builds), price-refresh trigger (needs the P2 hosted API).
 
 ## Run it
 

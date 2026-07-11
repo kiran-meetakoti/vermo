@@ -73,7 +73,7 @@ would flip this: the API becomes the only data path.
 | `db.py` | ~130 | Backend-agnostic connections: Supabase Postgres when `VERMO_BACKEND=postgres` (explicit opt-in), SQLite otherwise; an explicit file path always forces SQLite (tests). Translates sqlite3 qmark/named placeholders to psycopg style and registers loaders so Postgres returns SQLite-shaped Python types. Postgres schema is managed by `migrations/postgres/*.sql`, never by app code. |
 | `index.html`, `app.js`, `styles.css` | ~600 | Legacy vanilla-JS dashboard served by FastAPI at `/`. Portfolio-only; predates the Streamlit UI. |
 | `run_streamlit.py` | 46 | Streamlit launcher with a Python 3.9 Protocol-dataclass workaround. |
-| `mobile/` | — | Expo/React Native app (iOS + Android + web), Phase 3. Talks to Supabase directly (supabase-js auth + RLS-protected reads); see `mobile/README.md`. |
+| `mobile/` | — | Expo/React Native app (iOS + Android + web), Phase 3. Talks to Supabase directly (supabase-js auth + RLS-protected reads/writes); see the section below and `mobile/README.md`. |
 | `tests/` | — | Pytest suite: auth (`test_auth.py`), budget dedup (`test_budget.py`), API auth (`test_api.py`). |
 
 ## Authentication flow
@@ -149,6 +149,28 @@ authorize a route.
   curated ticker maps at the top of `main.py` (duplicated in
   `streamlit_app.py`). These are hand-maintained heuristics, not market data —
   review periodically.
+
+## Mobile app (`mobile/`) — what each piece does
+
+Thin TypeScript client; every financial computation that has tests stays in
+Python. The one deliberate exception: `src/lib/debt-math.ts` mirrors
+`finance_math.debt_projection` for the interactive payoff sliders — **any
+change to the Python debt math needs a matching TS change** until the
+hosted API (Phase 2) replaces it.
+
+| Path | Does |
+|---|---|
+| `src/app/_layout.tsx` | Root gate: loading spinner → LoginScreen (no session) → LockScreen (biometric enabled, cold start only) → tabs. Unauthenticated users can't reach any route. |
+| `src/app/(tabs)/_layout.tsx` | Five tabs: Overview · Budget · Income · Goals · Debt. |
+| `(tabs)/index` + `components/dashboard.tsx` | Overview: total-wealth hero, P/L tile, net-worth SVG chart from `snapshots`, holdings list with market filter, pull-to-refresh (re-reads data; does not trigger a price refresh — that needs the P2 API). |
+| `(tabs)/budget.tsx` | Salary vs spent vs remaining (+savings rate), 6-month trend, top categories, add-expense form → PostgREST insert with the user's JWT (RLS `WITH CHECK` validates `user_id`). |
+| `(tabs)/income.tsx` | Trailing-12m / this-year / monthly-avg tiles + recent events (display-level date-window sums only). |
+| `(tabs)/goals.tsx` | Progress cards vs total wealth; on-track verdicts deferred to the P2 API. |
+| `(tabs)/debt.tsx` | Loan form + payoff projection with extra-payment scenarios (`debt-math.ts`). |
+| `src/lib/supabase.ts` | Client with the publishable key (compiled into the bundle **by design** — RLS protects data, not key secrecy); AsyncStorage session persistence. |
+| `src/lib/auth.tsx` | Session context (`getSession` + `onAuthStateChange`). |
+| `src/lib/biometric.ts` + `components/lock-screen.tsx` | Face ID/fingerprint gate on cold start, opt-in toggle on Overview; hard-disabled on web. |
+| `src/constants/vermo.ts` | Brand tokens mirroring the web login panel + € formatting. |
 
 ## Deliberate design decisions
 

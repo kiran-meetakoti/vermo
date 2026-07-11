@@ -13,13 +13,36 @@ This is the umbrella plan. `MULTI_USER_ROADMAP.md` is the infrastructure log
 that got us to hosted multi-tenant (Stages 1–3, largely complete); its Stage
 4/5 items are absorbed into the phases below.
 
-## Where we are (2026-07-07)
+## Where we are (2026-07-12)
 
-- ✅ Multi-tenant Supabase Postgres with row-level security; data migrated.
-- ✅ Supabase Auth (JWT + refresh tokens), in-app password change.
-- ✅ Hosted web app: https://vermoo.streamlit.app (free tier), connection-pooled.
-- ✅ 102 tests on the risk-bearing logic; docs suite; clean git history.
-- ⬜ Everything below.
+- ✅ Multi-tenant Supabase Postgres with RLS; hosted web app
+  (https://vermoo.streamlit.app) with the mobile-matching Overview.
+- ✅ Phase 1 automation: CI on every push, daily 22:10 UTC price refresh,
+  nightly encrypted backups, Sentry opt-in. 138 tests green.
+- ✅ Phase 2.5 Tier 1 complete: ticker search, year-of-history backfill,
+  XIRR, Income page, Goals page.
+- ✅ Phase 3 in flight: Expo app with 5 tabs (Overview/Budget/Income/
+  Goals/Debt), sign-up, biometric unlock — running on-device via Expo Go.
+- ⬜ See "Next steps — the clean plan" below.
+
+## Next steps — the clean plan (ordered)
+
+1. **Finish Phase 1 trust items** (small, mostly dashboard clicks + one
+   feature): custom SMTP for signup emails; leaked-password toggle;
+   **rotate the DB password** (overdue); privacy/terms pages + in-app
+   account **export & deletion** (GDPR + Apple review requirement).
+2. **Phase 2 — host the API in the EU** (Fly.io Frankfurt/Hetzner, JWKS
+   JWT verification, complete the endpoint surface). This unlocks the
+   mobile features that are blocked today: price-refresh trigger, goal
+   verdicts, statement upload — and removes the `debt-math.ts` duplication.
+3. **Phase 3 finish line — store launch**: Apple ($99/yr) + Google ($25)
+   developer accounts → EAS builds → TestFlight/Play internal testing with
+   5–10 wedge-audience testers → public listing. Push notifications ride
+   on this step (need real builds, not Expo Go).
+4. **Phase 2.5 Tier 2 wedge features** (build once API exists, launch with
+   stores): FX-split performance, remittance radar, proof-of-funds PDF.
+5. **Phase 5 — monetization** after real testers: RevenueCat/Stripe,
+   pricing, landing page.
 
 ---
 
