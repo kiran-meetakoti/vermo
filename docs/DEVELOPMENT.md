@@ -161,6 +161,42 @@ docker run --rm -v "$PWD:/backup" postgres:17 \
 #    against the live DB before considering a real restore.
 ```
 
+## AI-assisted development — which model for which task
+
+The repo is deliberately structured so that not every task needs the most
+capable (and most expensive) model: dangerous logic lives in small, tested
+Python modules, and CI vetoes anything that breaks. Rule of thumb — use the
+top-tier model when changing what's *inside* the tested financial modules or
+deciding what the system should be; use a cheaper model when the repo
+already contains a worked example of the task and CI can veto the result.
+
+**Top-tier model (Fable/Opus) — mistakes are expensive or invisible:**
+
+- Money math: FX-split performance, tax awareness (DE Vorabpauschale /
+  Sparer-Pauschbetrag, IN LTCG/STCG), XIRR/projection changes. A wrong
+  formula renders confidently and lies to users.
+- Tenant isolation, auth, schema: RLS policies, migrations, JWT/JWKS
+  verification, account deletion/export (destructive paths through every
+  table).
+- Architecture and API design: endpoint contracts, auth middleware,
+  removing the `debt-math.ts` duplication — set the pattern once.
+- Cross-system debugging: connection hangs, latency, GoTrue quirks, stale
+  deploys — hypothesis-driven investigation across layers.
+- Ambiguous product/roadmap decisions ("figure out what to build").
+
+**Mid-tier model (Sonnet/Haiku) — pattern-following with a safety net:**
+
+- New mobile screens/UI polish (the tab pattern is the template; `tsc` +
+  on-device check catch mistakes immediately).
+- Filling out API endpoints after the pattern exists (`require_user_id` +
+  scoped query + TestClient test; CI is the reviewer).
+- New statement/broker parsers (`statement_parser.py` + fixture tests is
+  the template).
+- Store-launch procedure (EAS config, metadata, screenshots), docs upkeep,
+  additions to existing test suites.
+
+The hard rules in CLAUDE.md bind every model equally.
+
 ## Documentation upkeep
 
 Docs are part of the product (the goal is a sellable, maintainable codebase):

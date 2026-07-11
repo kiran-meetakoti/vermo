@@ -41,6 +41,15 @@ Preview config: `vermo-streamlit-preview` (port 8510) in `.claude/launch.json`.
   schema experiments. Update `docs/DATA_MODEL.md` with any schema change.
 - Money stored in EUR; ISO-UTC timestamps via `utc_now()`; UUID4 string ids.
 
+## Model delegation
+Task-to-model-tier guidance lives in `docs/DEVELOPMENT.md` ("AI-assisted
+development"). Short form: top-tier models for money math, auth/RLS/schema,
+architecture, and cross-system debugging; cheaper models for anything with
+a worked example in the repo (new screens, endpoints from the established
+pattern, parsers, store metadata) — CI vetoes their mistakes. If you are a
+smaller model and the task touches financial formulas, migrations, or
+tenant isolation, say so and suggest escalating instead of guessing.
+
 ## Gotchas
 - Product name is **Vermo**; "Atlas" appears in older material (roadmap
   title, `--atlas-*` CSS vars) — same app.
