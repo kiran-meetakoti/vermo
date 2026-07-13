@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import csv
 import io
+import json
 import math
 import sqlite3
 from datetime import date, datetime, timezone
@@ -16,6 +17,7 @@ import budget_db
 import db
 import goals_db
 import income_db
+import user_data
 from monitoring import init_monitoring
 
 init_monitoring("streamlit")
@@ -109,6 +111,32 @@ st.set_page_config(page_title="Vermo", page_icon="V", layout="wide")
 # for the rest of this script run.
 _session_user = require_login()
 LOCAL_USER_ID = _session_user["id"]
+
+LEGAL_DIR = BASE_DIR / "docs" / "legal"
+
+
+@st.dialog("Privacy Policy")
+def _show_privacy_dialog() -> None:
+    st.markdown((LEGAL_DIR / "PRIVACY.md").read_text())
+
+
+@st.dialog("Terms of Service")
+def _show_terms_dialog() -> None:
+    st.markdown((LEGAL_DIR / "TERMS.md").read_text())
+
+
+@st.dialog("Delete account permanently")
+def _show_delete_account_dialog() -> None:
+    st.error(
+        "This permanently deletes your account and every row you own "
+        "(holdings, snapshots, budget, goals, imports — everything). "
+        "It cannot be undone."
+    )
+    confirm_text = st.text_input("Type DELETE to confirm")
+    if st.button("Permanently delete my account", type="primary", disabled=confirm_text != "DELETE"):
+        user_data.delete_account(LOCAL_USER_ID)
+        logout()
+        st.rerun()
 
 
 def utc_now() -> str:
@@ -845,6 +873,22 @@ with st.sidebar.expander("⚙︎ Account"):
             else:
                 ok, message = change_password(current_pw, new_pw)
                 (st.success if ok else st.error)(message)
+    st.caption("Your data")
+    st.download_button(
+        "⤓ Download my data (JSON)",
+        data=json.dumps(user_data.export_user_data(LOCAL_USER_ID), indent=2),
+        file_name=f"vermo-export-{LOCAL_USER_ID}.json",
+        mime="application/json",
+        use_container_width=True,
+    )
+    if st.button("Delete my account", use_container_width=True):
+        _show_delete_account_dialog()
+    st.caption("Legal")
+    _legal_col1, _legal_col2 = st.columns(2)
+    if _legal_col1.button("Privacy", use_container_width=True):
+        _show_privacy_dialog()
+    if _legal_col2.button("Terms", use_container_width=True):
+        _show_terms_dialog()
 st.sidebar.caption("Display")
 theme_mode = st.sidebar.selectbox("Theme", ["Linear Light", "Midnight Dark"], index=0)
 currency = st.sidebar.selectbox("Base currency", ["EUR", "USD", "INR"])
